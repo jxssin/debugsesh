@@ -1,3 +1,5 @@
+"use client"
+
 import React, { useState, useEffect } from "react";
 import {
   Dialog,
@@ -12,6 +14,8 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { AlertCircle, Check } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { useAuth } from "@/contexts/auth-context";
+import { sendVerificationCode, verifyCode } from "@/lib/verification";
 
 interface RegisterModalProps {
   open: boolean;
@@ -19,11 +23,13 @@ interface RegisterModalProps {
 }
 
 const RegisterModal: React.FC<RegisterModalProps> = ({ open, onOpenChange }) => {
+  const { signUp } = useAuth();
   const [email, setEmail] = useState("");
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
   const [verificationCode, setVerificationCode] = useState("");
+  const [actualVerificationCode, setActualVerificationCode] = useState<string | null>(null);
   const [emailVerified, setEmailVerified] = useState(false);
   const [verificationSent, setVerificationSent] = useState(false);
   const [errors, setErrors] = useState<{
@@ -34,6 +40,7 @@ const RegisterModal: React.FC<RegisterModalProps> = ({ open, onOpenChange }) => 
     verificationCode?: string;
   }>({});
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [authError, setAuthError] = useState<string | null>(null);
 
   // Reset state when dialog closes
   useEffect(() => {
@@ -43,9 +50,11 @@ const RegisterModal: React.FC<RegisterModalProps> = ({ open, onOpenChange }) => 
       setPassword("");
       setConfirmPassword("");
       setVerificationCode("");
+      setActualVerificationCode(null);
       setEmailVerified(false);
       setVerificationSent(false);
       setErrors({});
+      setAuthError(null);
     }
   }, [open]);
 
@@ -69,14 +78,13 @@ const RegisterModal: React.FC<RegisterModalProps> = ({ open, onOpenChange }) => 
       return;
     }
 
-    // Simulate sending verification code
+    // Generate and send verification code
+    const code = sendVerificationCode(email);
+    setActualVerificationCode(code);
     setVerificationSent(true);
-    
-    // In a real app, you would make an API call here to send the verification code
-    // For this example, we'll simulate a successful verification after 2 seconds
-    setTimeout(() => {
-      // Code sent successfully
-    }, 2000);
+
+    // In development, show the code in the console
+    console.log(`Verification code for ${email}: ${code}`);
   };
 
   const handleVerifyCode = () => {
@@ -90,13 +98,16 @@ const RegisterModal: React.FC<RegisterModalProps> = ({ open, onOpenChange }) => 
     }
 
     if (verificationCode.length < 6) {
-      setErrors((prev) => ({ ...prev, verificationCode: "Code must be at least 6 characters" }));
+      setErrors((prev) => ({ ...prev, verificationCode: "Code must be 6 digits" }));
       return;
     }
 
-    // In a real app, you would verify the code against what was sent
-    // For this example, we'll simulate a successful verification
-    setEmailVerified(true);
+    // Verify the code
+    if (actualVerificationCode && verificationCode === actualVerificationCode) {
+      setEmailVerified(true);
+    } else {
+      setErrors((prev) => ({ ...prev, verificationCode: "Invalid verification code" }));
+    }
   };
 
   const validateForm = () => {
@@ -140,7 +151,7 @@ const RegisterModal: React.FC<RegisterModalProps> = ({ open, onOpenChange }) => 
     return Object.keys(newErrors).length === 0;
   };
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     
     if (!validateForm()) {
@@ -148,14 +159,22 @@ const RegisterModal: React.FC<RegisterModalProps> = ({ open, onOpenChange }) => 
     }
 
     setIsSubmitting(true);
+    setAuthError(null);
 
-    // In a real app, you would make an API call to create the user account
-    // For this example, we'll simulate a successful account creation
-    setTimeout(() => {
+    try {
+      const { error } = await signUp(email, password, username);
+      
+      if (error) {
+        setAuthError(error.message || "Failed to create account");
+      } else {
+        onOpenChange(false);
+        // Success message can be shown here
+      }
+    } catch (err: any) {
+      setAuthError(err.message || "An error occurred during registration");
+    } finally {
       setIsSubmitting(false);
-      onOpenChange(false);
-      // You might want to automatically log the user in or redirect them
-    }, 1500);
+    }
   };
 
   return (
@@ -166,6 +185,11 @@ const RegisterModal: React.FC<RegisterModalProps> = ({ open, onOpenChange }) => 
           <DialogDescription>
             Fill in your details to create your account.
           </DialogDescription>
+          {authError && (
+            <div className="bg-red-50 text-red-500 p-2 rounded-md text-sm mt-2">
+              {authError}
+            </div>
+          )}
         </DialogHeader>
         <form onSubmit={handleSubmit}>
           <div className="grid gap-4 py-4">

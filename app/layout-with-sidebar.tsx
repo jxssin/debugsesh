@@ -7,6 +7,8 @@ import { LayoutDashboard, RocketIcon, Wallet, Settings, User } from "lucide-reac
 import { ThemeToggle } from "@/components/theme-toggle"
 import { DiscIcon as Discord, Twitter } from "lucide-react"
 import { Badge } from "@/components/ui/badge"
+import { SidebarLogout } from "@/components/sidebar-logout"
+import { Separator } from "@/components/ui/separator"
 
 const sidebarItems = [
   {
@@ -96,6 +98,11 @@ export default function LayoutWithSidebar({
               </Link>
             ))}
           </nav>
+        </div>
+        
+        {/* Logout Section */}
+        <div className="p-4 mt-auto border-t">
+          <SidebarLogout />
         </div>
       </div>
 
