@@ -9,6 +9,8 @@ import { Label } from "@/components/ui/label"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { useSettings } from "@/contexts/settings-context"
 import { cn } from "@/lib/utils"
+import { useRouter } from "next/navigation"
+
 
 interface ValidationError {
   error: boolean
@@ -20,13 +22,31 @@ type ValidationErrors = {
 }
 
 export default function SettingsPage() {
+  const router = useRouter()
   const { settings, updateSettings } = useSettings()
   const [showRpcUrl, setShowRpcUrl] = useState(false)
   const [showWsUrl, setShowWsUrl] = useState(false)
   const [formSettings, setFormSettings] = useState(settings)
   const [isDirty, setIsDirty] = useState(false)
   const [errors, setErrors] = useState<ValidationErrors>({})
-
+  
+  // Add beforeunload event listener to prevent navigation when there are unsaved changes
+  useEffect(() => {
+    const handleBeforeUnload = (e: BeforeUnloadEvent) => {
+      if (isDirty) {
+        e.preventDefault()
+        e.returnValue = "You have unsaved changes. Are you sure you want to leave?"
+        return "You have unsaved changes. Are you sure you want to leave?"
+      }
+    }
+    
+    window.addEventListener("beforeunload", handleBeforeUnload)
+    
+    return () => {
+      window.removeEventListener("beforeunload", handleBeforeUnload)
+    }
+  }, [isDirty])
+  
   // Update form settings when settings change
   useEffect(() => {
     setFormSettings(settings)
@@ -42,7 +62,7 @@ export default function SettingsPage() {
 
   const validateForm = useCallback(() => {
     const newErrors: ValidationErrors = {}
-    const requiredFields = ["devBuy", "minBuy", "maxBuy", "jitoTipAmount"]
+    const requiredFields = ["devBuy", "minBuy", "maxBuy", "jitoTipAmount", "rpcUrl", "wsUrl"]
 
     requiredFields.forEach((field) => {
       if (!formSettings[field as keyof typeof formSettings]) {
@@ -52,6 +72,19 @@ export default function SettingsPage() {
         }
       }
     })
+    
+    // Validate that maxBuy is not smaller than minBuy
+    if (formSettings.minBuy && formSettings.maxBuy) {
+      const minBuy = parseFloat(formSettings.minBuy as string)
+      const maxBuy = parseFloat(formSettings.maxBuy as string)
+      
+      if (!isNaN(minBuy) && !isNaN(maxBuy) && maxBuy < minBuy) {
+        newErrors.maxBuy = {
+          error: true,
+          message: "Maximum buy amount cannot be less than minimum buy amount",
+        }
+      }
+    }
 
     setErrors(newErrors)
     return Object.keys(newErrors).length === 0
@@ -65,8 +98,60 @@ export default function SettingsPage() {
     if (validateForm()) {
       updateSettings(formSettings)
       setIsDirty(false)
+      // Store settings in localStorage to persist them
+      localStorage.setItem('appSettings', JSON.stringify(formSettings))
     }
   }
+
+  // Navigation protection for App Router
+  useEffect(() => {
+    if (!isDirty) return;
+    
+    // Use the window.onbeforeunload event to handle page navigation/refresh
+    const handleBeforeUnload = (e: BeforeUnloadEvent) => {
+      e.preventDefault();
+      e.returnValue = "You have unsaved changes. Are you sure you want to leave?";
+      return "You have unsaved changes. Are you sure you want to leave?";
+    };
+    
+    window.addEventListener("beforeunload", handleBeforeUnload);
+    
+    // Use Next.js App Router navigation interceptor
+    const handlePathnameChange = () => {
+      if (window.confirm("You have unsaved changes. Are you sure you want to leave?")) {
+        return;
+      }
+      // Stay on current page
+      router.back();
+    };
+    
+    // Cannot directly attach events in App Router
+    // This is a workaround by watching pathname
+    const originalPush = router.push;
+    router.push = function() {
+      if (isDirty) {
+        if (!window.confirm("You have unsaved changes. Are you sure you want to leave?")) {
+          return Promise.reject("Navigation cancelled");
+        }
+      }
+      return originalPush.apply(this, arguments as any);
+    };
+    
+    return () => {
+      window.removeEventListener("beforeunload", handleBeforeUnload);
+      router.push = originalPush;
+    };
+  }, [isDirty, router]);
+
+  // Load settings from localStorage on initial render
+  useEffect(() => {
+    const savedSettings = localStorage.getItem('appSettings')
+    if (savedSettings) {
+      const parsedSettings = JSON.parse(savedSettings)
+      setFormSettings(parsedSettings)
+      updateSettings(parsedSettings)
+    }
+  }, [updateSettings])
 
   // Handle numeric input with validation
   const handleNumericChange = (e: React.ChangeEvent<HTMLInputElement>, field: string) => {
@@ -116,7 +201,10 @@ export default function SettingsPage() {
                     setFormSettings((prev) => ({ ...prev, rpcUrl: e.target.value }))
                     setIsDirty(true)
                   }}
-                  className="pr-20"
+                  className={cn(
+                    "pr-20",
+                    errors.rpcUrl?.error && "border-red-500 focus-visible:ring-red-500"
+                  )}
                 />
                 <div className="absolute right-0 top-0 h-full flex items-center gap-1 pr-3">
                   {formSettings.rpcUrl && (
@@ -135,9 +223,17 @@ export default function SettingsPage() {
                   <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => setShowRpcUrl(!showRpcUrl)}>
                     {showRpcUrl ? <EyeOff size={16} /> : <Eye size={16} />}
                   </Button>
+                  {errors.rpcUrl?.error && (
+                    <div className="flex items-center justify-center">
+                      <AlertCircle className="h-4 w-4 text-red-500" />
+                    </div>
+                  )}
                 </div>
               </div>
             </div>
+            {errors.rpcUrl?.error && (
+              <p className="text-sm text-red-500 mt-1">{errors.rpcUrl.message}</p>
+            )}
           </div>
 
           {/* WebSocket URL */}
@@ -156,7 +252,10 @@ export default function SettingsPage() {
                     setFormSettings((prev) => ({ ...prev, wsUrl: e.target.value }))
                     setIsDirty(true)
                   }}
-                  className="pr-20"
+                  className={cn(
+                    "pr-20",
+                    errors.wsUrl?.error && "border-red-500 focus-visible:ring-red-500"
+                  )}
                 />
                 <div className="absolute right-0 top-0 h-full flex items-center gap-1 pr-3">
                   {formSettings.wsUrl && (
@@ -175,9 +274,17 @@ export default function SettingsPage() {
                   <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => setShowWsUrl(!showWsUrl)}>
                     {showWsUrl ? <EyeOff size={16} /> : <Eye size={16} />}
                   </Button>
+                  {errors.wsUrl?.error && (
+                    <div className="flex items-center justify-center">
+                      <AlertCircle className="h-4 w-4 text-red-500" />
+                    </div>
+                  )}
                 </div>
               </div>
             </div>
+            {errors.wsUrl?.error && (
+              <p className="text-sm text-red-500 mt-1">{errors.wsUrl.message}</p>
+            )}
           </div>
 
           {/* Block Engine URL */}
@@ -232,14 +339,14 @@ export default function SettingsPage() {
                 placeholder=""
               />
               {errors.devBuy?.error && (
-                <>
-                  <div className="absolute right-3 top-[50%] -translate-y-[50%] flex items-center justify-center">
-                    <AlertCircle className="h-4 w-4 text-red-500" />
-                  </div>
-                  <p className="text-sm text-red-500 mt-1">{errors.devBuy.message}</p>
-                </>
+                <div className="absolute right-0 top-0 h-full flex items-center pr-3">
+                  <AlertCircle className="h-4 w-4 text-red-500" />
+                </div>
               )}
             </div>
+            {errors.devBuy?.error && (
+              <p className="text-sm text-red-500 mt-1">{errors.devBuy.message}</p>
+            )}
           </div>
 
           {/* Minimum Buy Amount */}
@@ -260,14 +367,14 @@ export default function SettingsPage() {
                 placeholder=""
               />
               {errors.minBuy?.error && (
-                <>
-                  <div className="absolute right-3 top-[50%] -translate-y-[50%] flex items-center justify-center">
-                    <AlertCircle className="h-4 w-4 text-red-500" />
-                  </div>
-                  <p className="text-sm text-red-500 mt-1">{errors.minBuy.message}</p>
-                </>
+                <div className="absolute right-0 top-0 h-full flex items-center pr-3">
+                  <AlertCircle className="h-4 w-4 text-red-500" />
+                </div>
               )}
             </div>
+            {errors.minBuy?.error && (
+              <p className="text-sm text-red-500 mt-1">{errors.minBuy.message}</p>
+            )}
           </div>
 
           {/* Maximum Buy Amount */}
@@ -288,14 +395,14 @@ export default function SettingsPage() {
                 placeholder=""
               />
               {errors.maxBuy?.error && (
-                <>
-                  <div className="absolute right-3 top-[50%] -translate-y-[50%] flex items-center justify-center">
-                    <AlertCircle className="h-4 w-4 text-red-500" />
-                  </div>
-                  <p className="text-sm text-red-500 mt-1">{errors.maxBuy.message}</p>
-                </>
+                <div className="absolute right-0 top-0 h-full flex items-center pr-3">
+                  <AlertCircle className="h-4 w-4 text-red-500" />
+                </div>
               )}
             </div>
+            {errors.maxBuy?.error && (
+              <p className="text-sm text-red-500 mt-1">{errors.maxBuy.message}</p>
+            )}
           </div>
         </CardContent>
       </Card>
@@ -348,14 +455,14 @@ export default function SettingsPage() {
                 placeholder="0.005"
               />
               {errors.jitoTipAmount?.error && (
-                <>
-                  <div className="absolute right-3 top-[50%] -translate-y-[50%] flex items-center justify-center">
-                    <AlertCircle className="h-4 w-4 text-red-500" />
-                  </div>
-                  <p className="text-sm text-red-500 mt-1">{errors.jitoTipAmount.message}</p>
-                </>
+                <div className="absolute right-0 top-0 h-full flex items-center pr-3">
+                  <AlertCircle className="h-4 w-4 text-red-500" />
+                </div>
               )}
             </div>
+            {errors.jitoTipAmount?.error && (
+              <p className="text-sm text-red-500 mt-1">{errors.jitoTipAmount.message}</p>
+            )}
           </div>
         </CardContent>
       </Card>

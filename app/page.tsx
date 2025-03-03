@@ -10,7 +10,7 @@ export default function HomePage() {
         <div className="container mx-auto flex justify-between items-center">
           <div className="w-24">{/* Empty div for spacing */}</div>
 
-          <Link href="/" className="no-underline">
+          <Link href="/" className="no-underline no-focus-outline">
             <h1 className="text-2xl font-bold">MORTALITY.APP</h1>
           </Link>
 
@@ -19,7 +19,7 @@ export default function HomePage() {
               href="https://discord.com"
               target="_blank"
               rel="noopener noreferrer"
-              className="text-muted-foreground hover:text-foreground transition-colors"
+              className="text-muted-foreground hover:text-foreground transition-colors no-focus-outline"
               aria-label="Discord"
             >
               <Discord size={20} />
@@ -28,7 +28,7 @@ export default function HomePage() {
               href="https://twitter.com"
               target="_blank"
               rel="noopener noreferrer"
-              className="text-muted-foreground hover:text-foreground transition-colors"
+              className="text-muted-foreground hover:text-foreground transition-colors no-focus-outline"
               aria-label="Twitter"
             >
               <Twitter size={20} />
@@ -40,7 +40,7 @@ export default function HomePage() {
 
       <main className="flex-1 flex flex-col items-center justify-center p-4">
         <h1 className="text-6xl md:text-8xl font-bold mb-12">Welcome</h1>
-        <Link href="/login">
+        <Link href="/login" className="no-focus-outline">
           <Button
             size="lg"
             className="text-lg px-8 py-6 bg-black text-white hover:bg-black transition-transform duration-200 hover:scale-105 hover:shadow-lg"
@@ -52,4 +52,3 @@ export default function HomePage() {
     </div>
   )
 }
-

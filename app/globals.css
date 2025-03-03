@@ -85,3 +85,165 @@
   border: 1px solid rgba(255, 255, 255, 0.5);
   border-radius: 0.375rem;
 }
+
+/* Remove focus outline on links */
+a {
+  outline: none;
+  text-decoration: none;
+}
+
+a:focus {
+  outline: none;
+}
+
+a:focus-visible {
+  outline: none;
+}
+
+/* Specific link styles to override Next.js defaults */
+.no-focus-outline {
+  outline: none !important;
+}
+
+.no-focus-outline:focus {
+  outline: none !important;
+  box-shadow: none !important;
+}
+
+.no-focus-outline:focus-visible {
+  outline: none !important;
+  box-shadow: none !important;
+}
+
+/* Fix for dark mode link outlines */
+.dark a:focus-visible,
+.dark a:focus {
+  outline: none !important;
+  box-shadow: none !important;
+  border-color: transparent !important;
+}
+
+/* Fix for specific links in dark mode */
+.dark a.text-lg,
+.dark a.text-2xl,
+.dark a.no-underline,
+.dark header a,
+.dark a[aria-label="Discord"],
+.dark a[aria-label="Twitter"] {
+  border: none !important;
+}
+
+.dark a.text-lg:hover,
+.dark a.text-2xl:hover,
+.dark a.no-underline:hover,
+.dark header a:hover,
+.dark a[aria-label="Discord"]:hover,
+.dark a[aria-label="Twitter"]:hover {
+  border: none !important;
+}
+
+/* Fix spacing between social icons */
+header .flex.items-center.space-x-4 > a {
+  margin-right: 16px;
+}
+
+/* Fix for Welcome text on home page */
+.flex-col.items-center.justify-center h1 {
+  position: relative !important;
+  z-index: 1;
+  transform: none !important;
+}
+
+/* Fix for Enter button */
+a[href="/login"] {
+  position: relative !important;
+  z-index: 1;
+  transform: none !important;
+}
+
+a[href="/login"]:hover {
+  border: none !important;
+}
+
+a[href="/login"] button {
+  border: 1px solid transparent;
+}
+
+/* Show border around Enter button on hover */
+a[href="/login"] button:hover {
+  transform: scale(1.05) !important;
+  border: 1px solid white !important;
+}
+
+/* Fix for Register and Forgot Password links */
+.dark a[href="/register"],
+.dark a[href="/forgot-password"] {
+  border: none !important;
+  position: relative !important;
+  transform: none !important;
+}
+
+.dark a[href="/register"]:hover,
+.dark a[href="/forgot-password"]:hover {
+  border: none !important;
+  box-shadow: none !important;
+  transform: none !important;
+}
+
+/* Fix for all text-sm font-bold links that might be shifting */
+.dark a.text-sm.font-bold {
+  border: none !important;
+  position: relative !important;
+}
+
+.dark a.text-sm.font-bold:hover {
+  border: none !important;
+}
+
+/* Unified sidebar navigation styles for both light and dark modes */
+nav a {
+  border: 1px solid transparent !important;
+  transition: all 0.2s ease !important;
+  transform: none !important;
+}
+
+nav a:hover {
+  transform: scale(1.05) !important;
+  box-shadow: 0 4px 10px rgba(0, 0, 0, 0.15) !important;
+  z-index: 5 !important;
+  position: relative !important;
+}
+
+/* Light mode specific */
+nav a:hover {
+  border: 1px solid rgba(0, 0, 0, 0.1) !important;
+}
+
+/* Dark mode specific */
+.dark nav a:hover {
+  border: 1px solid rgba(255, 255, 255, 0.5) !important;
+  box-shadow: 0 4px 10px rgba(0, 0, 0, 0.3) !important;
+}
+
+/* Active states */
+nav a.bg-black {
+  position: relative !important;
+}
+
+nav a.bg-black:hover {
+  transform: scale(1.05) !important;
+}
+
+.dark nav a.bg-black {
+  border: 1px solid white !important;
+}
+
+/* Click animation for both modes */
+nav a:active {
+  transform: scale(0.98) !important;
+  transition: all 0.1s ease !important;
+}
+
+.dark nav a:active {
+  box-shadow: 0 2px 5px rgba(0, 0, 0, 0.2) !important;
+}

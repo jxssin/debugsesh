@@ -44,7 +44,7 @@ export default function LayoutWithSidebar({
       <div className="w-64 border-r bg-background flex flex-col fixed h-screen">
         {/* App Name */}
         <div className="h-16 border-b flex items-center px-6 sticky top-0 bg-background z-20">
-          <Link href="/" className="text-lg font-bold">
+          <Link href="/" className="text-lg font-bold no-focus-outline">
             MORTALITY.APP
           </Link>
         </div>
@@ -87,7 +87,7 @@ export default function LayoutWithSidebar({
               <Link
                 key={item.name}
                 href={item.href}
-                className={`flex items-center gap-3 px-3 py-2 rounded-md text-sm transition-all duration-200 hover:scale-105 ${
+                className={`flex items-center gap-3 px-3 py-2 rounded-md text-sm transition-all duration-200 hover:scale-105 no-focus-outline ${
                   pathname === item.href ? "bg-black text-white" : "hover:bg-black hover:text-white"
                 }`}
               >
@@ -109,7 +109,7 @@ export default function LayoutWithSidebar({
               href="https://discord.com"
               target="_blank"
               rel="noopener noreferrer"
-              className="text-muted-foreground hover:text-foreground transition-colors"
+              className="text-muted-foreground hover:text-foreground transition-colors no-focus-outline"
               aria-label="Discord"
             >
               <Discord size={20} />
@@ -118,7 +118,7 @@ export default function LayoutWithSidebar({
               href="https://twitter.com"
               target="_blank"
               rel="noopener noreferrer"
-              className="text-muted-foreground hover:text-foreground transition-colors"
+              className="text-muted-foreground hover:text-foreground transition-colors no-focus-outline"
               aria-label="Twitter"
             >
               <Twitter size={20} />
@@ -131,4 +131,3 @@ export default function LayoutWithSidebar({
     </div>
   )
 }
-

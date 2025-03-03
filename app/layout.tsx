@@ -8,8 +8,8 @@ const inter = Inter({ subsets: ["latin"] })
 
 export const metadata: Metadata = {
   title: "Mortality App",
-  description: "Track and manage your mortality data",
-    generator: 'v0.dev'
+  description: "Hasstle free bundling for PumpFun.",
+    generator: 'MORTALITY.APP'
 }
 
 export default function RootLayout({
