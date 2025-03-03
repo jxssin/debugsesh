@@ -71,8 +71,11 @@ export default function SettingsPage() {
   // Handle numeric input with validation
   const handleNumericChange = (e: React.ChangeEvent<HTMLInputElement>, field: string) => {
     const value = e.target.value;
-    // Allow empty string, decimal point, or valid numbers
-    if (value === "" || value === "." || /^-?\d*\.?\d*$/.test(value)) {
+    
+    // Regex to match valid numbers with up to 9 decimal places
+    const solanaDecimalRegex = /^-?\d*\.?\d{0,9}$/;
+    
+    if (value === "" || value === "." || solanaDecimalRegex.test(value)) {
       setFormSettings((prev) => ({ ...prev, [field]: value }));
       setIsDirty(true);
     }

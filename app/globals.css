@@ -27,11 +27,11 @@
   }
 
   .dark {
-    --background: 222.2 84% 4.9%;
+    --background: 0 0% 0%; /* Changed to pure black */
     --foreground: 210 40% 98%;
-    --card: 222.2 84% 4.9%;
+    --card: 0 0% 0%; /* Changed to pure black */
     --card-foreground: 210 40% 98%;
-    --popover: 222.2 84% 4.9%;
+    --popover: 0 0% 0%; /* Changed to pure black */
     --popover-foreground: 210 40% 98%;
     --primary: 0 0% 100%; /* Changed to white in dark mode */
     --primary-foreground: 222.2 47.4% 11.2%;
@@ -58,3 +58,30 @@
   }
 }
 
+/* Make buttons and active elements in dark mode have a white border */
+.dark button.bg-primary,
+.dark a.bg-primary,
+.dark [role="button"].bg-primary,
+.dark .bg-primary[data-state="active"],
+.dark button[data-state="active"] {
+  border: 1px solid white;
+}
+
+/* Add hover border for interactive elements */
+.dark button:hover:not(.bg-primary),
+.dark a:hover:not(.bg-primary),
+.dark [role="button"]:hover:not(.bg-primary) {
+  border: 1px solid rgba(255, 255, 255, 0.5);
+}
+
+/* Specific fix for navigation items in dark mode */
+.dark [aria-current="page"],
+.dark [data-active="true"] {
+  border: 1px solid white;
+  border-radius: 0.375rem;
+}
+
+.dark a:hover:not([aria-current="page"]):not([data-active="true"]) {
+  border: 1px solid rgba(255, 255, 255, 0.5);
+  border-radius: 0.375rem;
+}
