@@ -3,12 +3,12 @@
 import type React from "react"
 import Link from "next/link"
 import { usePathname } from "next/navigation"
-import { LayoutDashboard, RocketIcon, Wallet, Settings, User } from "lucide-react"
+import { LayoutDashboard, RocketIcon, Wallet, Settings } from "lucide-react"
 import { ThemeToggle } from "@/components/theme-toggle"
-import { DiscIcon as Discord, Twitter } from "lucide-react"
-import { Badge } from "@/components/ui/badge"
 import { SidebarLogout } from "@/components/sidebar-logout"
-import { Separator } from "@/components/ui/separator"
+import { UserProfile } from "@/components/user-profile"
+import { SolanaPrice } from "@/components/solana-price"
+import { DiscIcon, XIcon } from "@/components/social-icons"
 
 const sidebarItems = [
   {
@@ -52,35 +52,10 @@ export default function LayoutWithSidebar({
         </div>
 
         {/* Profile Section */}
-        <div className="p-4 border-b space-y-4">
-          {/* User Profile */}
-          <div className="flex items-start gap-3">
-            <div className="flex items-center justify-center w-10 h-10 rounded-full border mt-0">
-              <User size={24} className="text-foreground" />
-            </div>
-            <div className="flex flex-col">
-              <div className="relative">
-                <Badge variant="outline" className="absolute -top-3 -left-1 text-[10px] px-1 py-0 font-medium">
-                  PREMIUM
-                </Badge>
-                <span className="text-sm mt-1 block">johndoe</span>
-              </div>
-            </div>
-          </div>
+        <UserProfile />
 
-          {/* Solana Price */}
-          <div className="flex items-center gap-2">
-            <div className="flex items-center justify-center w-6 h-6">
-              <img
-                src="https://raw.githubusercontent.com/solana-labs/token-list/main/assets/mainnet/So11111111111111111111111111111111111111112/logo.png"
-                alt="Solana"
-                className="w-5 h-5 rounded-full"
-              />
-            </div>
-            <span className="text-sm">$69.69</span>
-            <span className="text-xs text-green-500">+6.9%</span>
-          </div>
-        </div>
+        {/* Solana Price */}
+        <SolanaPrice />
 
         {/* Navigation */}
         <div className="flex-1 overflow-y-auto">
@@ -119,7 +94,7 @@ export default function LayoutWithSidebar({
               className="text-muted-foreground hover:text-foreground transition-colors no-focus-outline"
               aria-label="Discord"
             >
-              <Discord size={20} />
+              <DiscIcon />
             </Link>
             <Link
               href="https://twitter.com"
@@ -128,7 +103,7 @@ export default function LayoutWithSidebar({
               className="text-muted-foreground hover:text-foreground transition-colors no-focus-outline"
               aria-label="Twitter"
             >
-              <Twitter size={20} />
+              <XIcon />
             </Link>
             <ThemeToggle />
           </div>
