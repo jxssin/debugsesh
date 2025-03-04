@@ -1,4 +1,4 @@
-import { useState, useRef } from "react";
+import { useState, useRef, useEffect } from "react";
 import { User, Upload } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { useAuth } from "@/contexts/auth-context";
@@ -15,11 +15,13 @@ import { Button } from "@/components/ui/button";
 import { supabase } from "@/lib/supabase";
 
 export function UserProfile() {
-  const { user } = useAuth();
+  const { user, refreshSession } = useAuth();
   const { isPremium } = useUser();
   const [profilePicture, setProfilePicture] = useState<string | null>(null);
+  const [currentAvatar, setCurrentAvatar] = useState<string | null>(null);
   const [showUploadDialog, setShowUploadDialog] = useState(false);
   const [isUploading, setIsUploading] = useState(false);
+  const [imageError, setImageError] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
   
   // Extract username from metadata or email
@@ -27,6 +29,25 @@ export function UserProfile() {
                    user?.email?.split('@')[0] || 
                    "Guest";
   
+  // Load the current avatar when the component mounts or user changes
+  useEffect(() => {
+    const loadAvatar = async () => {
+      if (!user) return;
+      
+      setImageError(false);
+      
+      // Check if user has an avatar URL in metadata
+      if (user.user_metadata?.avatar_url) {
+        console.log("Avatar URL from metadata:", user.user_metadata.avatar_url);
+        // Add timestamp to prevent caching
+        const timestampedUrl = `${user.user_metadata.avatar_url}?t=${Date.now()}`;
+        setCurrentAvatar(timestampedUrl);
+      }
+    };
+    
+    loadAvatar();
+  }, [user]);
+
   const handleProfileClick = () => {
     setShowUploadDialog(true);
   };
@@ -46,44 +67,114 @@ export function UserProfile() {
     if (!profilePicture || !user) return;
     
     setIsUploading(true);
+    console.log("Starting upload process...");
     
     try {
       // Convert data URL to blob
       const response = await fetch(profilePicture);
       const blob = await response.blob();
       
-      // Create a file with a unique name
-      const file = new File([blob], `profile_${user.id}_${Date.now()}.jpg`, { type: 'image/jpeg' });
+      // Generate a unique filename with timestamp to avoid caching issues
+      const timestamp = Date.now();
+      const filename = `profile_${timestamp}.jpg`;
+      const file = new File([blob], filename, { type: 'image/jpeg' });
       
-      // Upload to Supabase Storage
+      console.log(`Uploading new profile image: ${filename}`);
+      
+      // Upload to Supabase Storage with public access
       const { data, error } = await supabase.storage
         .from('profiles')
-        .upload(`${user.id}/profile.jpg`, file, {
-          upsert: true
+        .upload(`${user.id}/${filename}`, file, {
+          upsert: true,
+          cacheControl: 'no-cache'
         });
       
       if (error) {
         console.error('Error uploading profile picture:', error);
-        // Show error notification here
-      } else {
-        // Update user metadata with profile picture URL
-        const { data: publicUrlData } = supabase.storage
-          .from('profiles')
-          .getPublicUrl(`${user.id}/profile.jpg`);
-          
-        // Update user metadata in Supabase Auth
-        await supabase.auth.updateUser({
-          data: {
-            avatar_url: publicUrlData.publicUrl
-          }
-        });
+        return;
       }
+      
+      console.log("Upload successful:", data);
+      
+      // Get the public URL of the uploaded image
+      const { data: publicUrlData } = supabase.storage
+        .from('profiles')
+        .getPublicUrl(`${user.id}/${filename}`);
+          
+      if (!publicUrlData.publicUrl) {
+        console.error('Could not get public URL for uploaded file');
+        return;
+      }
+      
+      console.log("Generated public URL:", publicUrlData.publicUrl);
+      
+      // Update user metadata in Supabase Auth
+      const { error: updateError } = await supabase.auth.updateUser({
+        data: {
+          avatar_url: publicUrlData.publicUrl
+        }
+      });
+      
+      if (updateError) {
+        console.error('Error updating user metadata:', updateError);
+        return;
+      }
+      
+      console.log("User metadata updated with avatar URL");
+      
+      // Find and delete old profile images to clean up storage
+      try {
+        const { data: fileList } = await supabase.storage
+          .from('profiles')
+          .list(user.id);
+          
+        if (fileList) {
+          const oldFiles = fileList.filter(file => 
+            file.name.startsWith('profile_') && 
+            file.name !== filename
+          );
+          
+          if (oldFiles.length > 0) {
+            const filesToDelete = oldFiles.map(file => `${user.id}/${file.name}`);
+            console.log("Cleaning up old profile images:", filesToDelete);
+            
+            const { error: deleteError } = await supabase.storage
+              .from('profiles')
+              .remove(filesToDelete);
+              
+            if (deleteError) {
+              console.error("Error deleting old files:", deleteError);
+            }
+          }
+        }
+      } catch (cleanupError) {
+        console.error("Error during storage cleanup:", cleanupError);
+      }
+      
+      // Update local state with the new avatar URL (with timestamp for cache busting)
+      const avatarWithTimestamp = `${publicUrlData.publicUrl}?t=${timestamp}`;
+      setCurrentAvatar(avatarWithTimestamp);
+      setImageError(false);
+      
+      // Force a session refresh
+      if (refreshSession) {
+        await refreshSession();
+        console.log("Session refreshed");
+      }
+      
     } catch (error) {
       console.error('Error in upload process:', error);
     } finally {
       setIsUploading(false);
       setShowUploadDialog(false);
+      setProfilePicture(null);
     }
+  };
+
+  const handleImageError = () => {
+    console.log("Image failed to load:", currentAvatar);
+    setImageError(true);
+    setCurrentAvatar(null);
   };
 
   return (
@@ -91,15 +182,16 @@ export function UserProfile() {
       {/* User Profile */}
       <div className="flex items-start gap-3">
         <div 
-          className="flex items-center justify-center w-10 h-10 rounded-full border mt-0 cursor-pointer overflow-hidden" 
+          className="flex items-center justify-center w-10 h-10 rounded-full border mt-0 cursor-pointer overflow-hidden bg-muted" 
           onClick={handleProfileClick}
           title="Update profile picture"
         >
-          {profilePicture || user?.user_metadata?.avatar_url ? (
+          {currentAvatar && !imageError ? (
             <img 
-              src={profilePicture || user?.user_metadata?.avatar_url} 
+              src={currentAvatar} 
               alt="Profile" 
-              className="w-full h-full object-cover" 
+              className="w-full h-full object-cover"
+              onError={handleImageError}
             />
           ) : (
             <User size={24} className="text-foreground" />
@@ -125,11 +217,16 @@ export function UserProfile() {
             </DialogDescription>
           </DialogHeader>
           <div className="flex flex-col items-center gap-4 py-4">
-            <div className="w-24 h-24 rounded-full border-2 flex items-center justify-center overflow-hidden">
+            <div className="w-24 h-24 rounded-full border-2 flex items-center justify-center overflow-hidden bg-muted">
               {profilePicture ? (
                 <img src={profilePicture} alt="Preview" className="w-full h-full object-cover" />
-              ) : user?.user_metadata?.avatar_url ? (
-                <img src={user.user_metadata.avatar_url} alt="Current profile" className="w-full h-full object-cover" />
+              ) : currentAvatar && !imageError ? (
+                <img 
+                  src={currentAvatar} 
+                  alt="Current profile" 
+                  className="w-full h-full object-cover"
+                  onError={handleImageError} 
+                />
               ) : (
                 <User size={48} className="text-muted-foreground" />
               )}
@@ -156,7 +253,10 @@ export function UserProfile() {
             <Button
               type="button"
               variant="outline"
-              onClick={() => setShowUploadDialog(false)}
+              onClick={() => {
+                setShowUploadDialog(false);
+                setProfilePicture(null);
+              }}
             >
               Cancel
             </Button>
@@ -164,6 +264,7 @@ export function UserProfile() {
               type="button"
               onClick={handleUpload}
               disabled={!profilePicture || isUploading}
+              className="bg-black text-white hover:bg-black hover:scale-105 transition-transform duration-200"
             >
               {isUploading ? "Uploading..." : "Save Changes"}
             </Button>
