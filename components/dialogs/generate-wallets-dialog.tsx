@@ -57,4 +57,3 @@ export function GenerateWalletsDialog({ open, onOpenChange, onGenerate }: Genera
     </Dialog>
   )
 }
-

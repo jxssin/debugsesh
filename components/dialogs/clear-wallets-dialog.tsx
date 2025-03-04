@@ -54,4 +54,3 @@ export function ClearWalletsDialog({ open, onOpenChange, onConfirm, isPremium }:
     </Dialog>
   )
 }
-

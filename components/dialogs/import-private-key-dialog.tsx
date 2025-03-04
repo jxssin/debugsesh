@@ -54,4 +54,3 @@ export function ImportPrivateKeyDialog({ open, onOpenChange, onImport, walletTyp
     </Dialog>
   )
 }
-

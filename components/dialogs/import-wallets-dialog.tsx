@@ -66,4 +66,3 @@ export function ImportWalletsDialog({ open, onOpenChange, onImport, isPremium }:
     </Dialog>
   )
 }
-
