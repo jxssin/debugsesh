@@ -96,62 +96,62 @@ export default function WalletsPage() {
   const [isLoading, setIsLoading] = useState(true)
   
   // Load wallets from Supabase on initial render
-  useEffect(() => {
-    async function loadSavedWallets() {
-      if (!user) return;
+useEffect(() => {
+  async function loadSavedWallets() {
+    if (!user) return;
+    
+    setIsLoading(true);
+    try {
+      // 1. Load generated wallets from Supabase
+      const wallets = await loadWalletsFromSupabase(user.id, supabase);
       
-      setIsLoading(true);
-      try {
-        // 1. Load generated wallets from Supabase
-        const wallets = await loadWalletsFromSupabase(user.id, supabase);
-        
-        if (wallets && wallets.length > 0) {
-          setGeneratedWallets(wallets);
-        }
-        
-        // 2. Load main wallets (developer and funder) from Supabase
-        const mainWallets = await loadMainWalletsFromSupabase(user.id, supabase);
-        
-        if (mainWallets.developer) {
-          setDeveloperWallet(mainWallets.developer);
-        }
-        
-        if (mainWallets.funder) {
-          setFunderWallet(mainWallets.funder);
-        }
-        
-        // 3. If no wallets were loaded from Supabase, try loading from localStorage as a fallback
-        if (!mainWallets.developer && !mainWallets.funder) {
-          const savedMainWallets = localStorage.getItem('mortality-main-wallets');
-          if (savedMainWallets) {
-            try {
-              const mainWalletData = JSON.parse(savedMainWallets);
-              if (mainWalletData.developer) setDeveloperWallet(mainWalletData.developer);
-              if (mainWalletData.funder) setFunderWallet(mainWalletData.funder);
-            } catch (error) {
-              console.error("Error parsing saved main wallets:", error);
-            }
+      if (wallets && wallets.length > 0) {
+        setGeneratedWallets(wallets);
+      }
+      
+      // 2. Load main wallets (developer and funder) from Supabase
+      const mainWallets = await loadMainWalletsFromSupabase(user.id, supabase);
+      
+      if (mainWallets.developer) {
+        setDeveloperWallet(mainWallets.developer);
+      }
+      
+      if (mainWallets.funder) {
+        setFunderWallet(mainWallets.funder);
+      }
+      
+      // 3. If no wallets were loaded from Supabase, try loading from localStorage as a fallback
+      if (!mainWallets.developer && !mainWallets.funder) {
+        const savedMainWallets = localStorage.getItem('mortality-main-wallets');
+        if (savedMainWallets) {
+          try {
+            const mainWalletData = JSON.parse(savedMainWallets);
+            if (mainWalletData.developer) setDeveloperWallet(mainWalletData.developer);
+            if (mainWalletData.funder) setFunderWallet(mainWalletData.funder);
+          } catch (error) {
+            console.error("Error parsing saved main wallets:", error);
           }
         }
-      } catch (error) {
-        console.error("Error loading saved wallets:", error);
-        toast({
-          title: "Error",
-          description: "Failed to load your saved wallets",
-          variant: "destructive"
-        });
-      } finally {
-        setIsLoading(false);
       }
+    } catch (error) {
+      console.error("Error loading saved wallets:", error);
+      toast({
+        title: "Error",
+        description: "Failed to load your saved wallets",
+        variant: "destructive"
+      });
+    } finally {
+      setIsLoading(false);
     }
-    
-    loadSavedWallets().then(() => {
-      // Auto-refresh balances after loading wallets
-      if (settings.rpcUrl) {
-        refreshBalances();
-      }
-    });
-  }, [user, settings.rpcUrl]);
+  }
+  
+  loadSavedWallets().then(() => {
+    // Only refresh balances on initial load, not on tab switching
+    if (settings.rpcUrl) {
+      refreshBalances();
+    }
+  });
+}, [user, settings.rpcUrl]); // Remove other dependencies that might cause re-runs
 
   // Update the main wallet state in Supabase whenever they change
   useEffect(() => {
@@ -307,26 +307,21 @@ export default function WalletsPage() {
       const formattedWallets = newWallets.map(wallet => ({
         publicKey: wallet.publicKey,
         privateKey: wallet.privateKey,
-        balance: null,
+        balance: "0.000000000", // Default to zero instead of null
         platform: "NONE",
         hasTipped: false
       }));
       
-      // Use functional update to prevent state issues
-      setGeneratedWallets(prevWallets => {
-        const updatedWallets = [...prevWallets, ...formattedWallets];
-        
-        // Save to Supabase if user is logged in
-        if (user) {
-          saveWalletsToSupabase(user.id, updatedWallets, supabase)
-            .catch(error => console.error("Error saving new wallets:", error));
-        }
-        
-        return updatedWallets;
-      });
+      // Create a completely new array instead of using functional update
+      const updatedWallets = [...generatedWallets, ...formattedWallets];
       
-      // Refresh balances for the new wallets
-      refreshBalances();
+      // Set state directly with the new array
+      setGeneratedWallets(updatedWallets);
+      
+      // Save to Supabase if user is logged in
+      if (user) {
+        await saveWalletsToSupabase(user.id, updatedWallets, supabase);
+      }
       
       toast({
         title: "Wallets Generated",
@@ -360,7 +355,6 @@ export default function WalletsPage() {
           description: `This wallet is already being used as a ${importingWalletType === "developer" ? "funder" : "developer"} wallet. Using the same wallet for both roles is not recommended.`,
           variant: "destructive"
         });
-        // We continue with import but show the warning
       }
       
       // Now we have a valid keypair
@@ -376,28 +370,43 @@ export default function WalletsPage() {
           const connection = new Connection(settings.rpcUrl, 'confirmed');
           const pubKey = new PublicKey(wallet.publicKey);
           const balance = await connection.getBalance(pubKey);
-          wallet.balance = (balance / LAMPORTS_PER_SOL).toFixed(9);
+          const balanceString = (balance / LAMPORTS_PER_SOL).toFixed(9);
+          wallet.balance = balanceString;
         } catch (err) {
           console.error("Error fetching initial balance:", err);
         }
       }
       
-      // Update the appropriate wallet
+      // Update the appropriate wallet by creating a new object reference
       if (importingWalletType === "developer") {
-        setDeveloperWallet(wallet);
+        // Force a new object reference to trigger proper re-render
+        const newWallet = {...wallet};
+        setDeveloperWallet(newWallet);
         
         // Save to Supabase
-        await saveMainWalletToSupabase(user.id, 'developer', wallet, supabase);
+        await saveMainWalletToSupabase(user.id, 'developer', newWallet, supabase);
+        
+        // Force a re-render
+        setTimeout(() => {
+          setDeveloperWallet({...newWallet});
+        }, 100);
         
         toast({
           title: "Developer Wallet Imported",
           description: "Successfully imported developer wallet."
         });
       } else if (importingWalletType === "funder") {
-        setFunderWallet(wallet);
+        // Force a new object reference to trigger proper re-render
+        const newWallet = {...wallet};
+        setFunderWallet(newWallet);
         
         // Save to Supabase
-        await saveMainWalletToSupabase(user.id, 'funder', wallet, supabase);
+        await saveMainWalletToSupabase(user.id, 'funder', newWallet, supabase);
+        
+        // Force a re-render
+        setTimeout(() => {
+          setFunderWallet({...newWallet});
+        }, 100);
         
         toast({
           title: "Funder Wallet Imported",
@@ -405,8 +414,11 @@ export default function WalletsPage() {
         });
       }
       
-      // Refresh balances for the new wallet
-      refreshBalances();
+      // Close the dialog
+      setShowImportPrivateKeyDialog(false);
+      
+      // Clear the input type
+      setImportingWalletType(null);
       
     } catch (error) {
       console.error("Error importing private key:", error);
@@ -1151,86 +1163,86 @@ export default function WalletsPage() {
           ) : (
             <div className="grid gap-4">
               {generatedWallets.length === 0 ? (
-                <div className="text-center p-6 text-muted-foreground">
-                  No wallets generated yet. Click "GENERATE" to create new wallets.
+  <div className="text-center p-6 text-muted-foreground">
+    No wallets generated yet. Click "GENERATE" to create new wallets.
+  </div>
+) : (
+  generatedWallets.map((wallet, index) => (
+    <Card key={`wallet-${wallet.publicKey}-${index}`} className="p-4">
+      <div className="flex items-center gap-4">
+        <Button
+          variant="ghost"
+          size="icon"
+          className="text-muted-foreground hover:text-foreground transition-transform duration-200 hover:scale-105"
+          onClick={() => handleDeleteWallet(index)}
+        >
+          <Trash2 size={20} />
+        </Button>
+        <div className="flex items-center gap-4 flex-1">
+          <span className="font-semibold">#{index + 1}</span>
+          <div className="grid sm:grid-cols-[minmax(120px,auto)_1fr] gap-3 sm:gap-6 w-full">
+            <div>
+              <label className="text-sm font-medium">Balance</label>
+              <BalanceDisplay amount={wallet.balance} />
+              
+              {/* Platform indicator badge */}
+              {wallet.platform && wallet.platform !== "NONE" && (
+                <div className="mt-1">
+                  <span className="inline-flex items-center rounded-md bg-blue-50 dark:bg-blue-900 px-2 py-1 text-xs font-medium text-blue-700 dark:text-blue-300 ring-1 ring-inset ring-blue-700/10 dark:ring-blue-300/20">
+                    {wallet.platform}
+                  </span>
                 </div>
-              ) : (
-                generatedWallets.map((wallet, index) => (
-                  <Card key={wallet.publicKey} className="p-4">
-                    <div className="flex items-center gap-4">
-                      <Button
-                        variant="ghost"
-                        size="icon"
-                        className="text-muted-foreground hover:text-foreground transition-transform duration-200 hover:scale-105"
-                        onClick={() => handleDeleteWallet(index)}
-                      >
-                        <Trash2 size={20} />
-                      </Button>
-                      <div className="flex items-center gap-4 flex-1">
-                        <span className="font-semibold">#{index + 1}</span>
-                        <div className="grid sm:grid-cols-[minmax(120px,auto)_1fr] gap-3 sm:gap-6 w-full">
-                          <div>
-                            <label className="text-sm font-medium">Balance</label>
-                            <BalanceDisplay amount={wallet.balance} />
-                            
-                            {/* Platform indicator badge */}
-                            {wallet.platform && wallet.platform !== "NONE" && (
-                              <div className="mt-1">
-                                <span className="inline-flex items-center rounded-md bg-blue-50 dark:bg-blue-900 px-2 py-1 text-xs font-medium text-blue-700 dark:text-blue-300 ring-1 ring-inset ring-blue-700/10 dark:ring-blue-300/20">
-                                  {wallet.platform}
-                                </span>
-                              </div>
-                            )}
-                          </div>
-                          <div className="space-y-2">
-                            <div>
-                              <label className="text-sm font-medium">Public Key</label>
-                              <div className="flex items-center gap-1">
-                                <div className="font-mono text-base truncate">{wallet.publicKey}</div>
-                                <Button
-                                  variant="ghost"
-                                  size="icon"
-                                  className="h-6 w-6 shrink-0"
-                                  onClick={() => handleCopy(wallet.publicKey, `generated-${index}`)}
-                                >
-                                  {copySuccess === `generated-${index}` ? (
-                                    <Check size={12} className="text-green-500" />
-                                  ) : (
-                                    <Copy size={12} />
-                                  )}
-                                </Button>
-                              </div>
-                            </div>
-                            <div>
-                              <label className="text-sm font-medium">Private Key</label>
-                              <div className="flex items-center gap-1">
-                                <div className="font-mono text-base truncate">
-                                  {isPremium ? wallet.privateKey : maskPrivateKey(wallet.privateKey)}
-                                </div>
-                                <Button
-                                  variant="ghost"
-                                  size="icon"
-                                  className="h-6 w-6 shrink-0"
-                                  onClick={() => handleCopy(wallet.privateKey, `generated-${index}-private`)}
-                                  disabled={!isPremium}
-                                >
-                                  {copySuccess === `generated-${index}-private` ? (
-                                    <Check size={12} className="text-green-500" />
-                                  ) : isPremium ? (
-                                    <Copy size={12} />
-                                  ) : (
-                                    <Lock size={12} />
-                                  )}
-                                </Button>
-                              </div>
-                            </div>
-                          </div>
-                        </div>
-                      </div>
-                    </div>
-                  </Card>
-                ))
               )}
+            </div>
+            <div className="space-y-2">
+              <div>
+                <label className="text-sm font-medium">Public Key</label>
+                <div className="flex items-center gap-1">
+                  <div className="font-mono text-base truncate">{wallet.publicKey}</div>
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    className="h-6 w-6 shrink-0"
+                    onClick={() => handleCopy(wallet.publicKey, `generated-${index}`)}
+                  >
+                    {copySuccess === `generated-${index}` ? (
+                      <Check size={12} className="text-green-500" />
+                    ) : (
+                      <Copy size={12} />
+                    )}
+                  </Button>
+                </div>
+              </div>
+              <div>
+                <label className="text-sm font-medium">Private Key</label>
+                <div className="flex items-center gap-1">
+                  <div className="font-mono text-base truncate">
+                    {isPremium ? wallet.privateKey : maskPrivateKey(wallet.privateKey)}
+                  </div>
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    className="h-6 w-6 shrink-0"
+                    onClick={() => handleCopy(wallet.privateKey, `generated-${index}-private`)}
+                    disabled={!isPremium}
+                  >
+                    {copySuccess === `generated-${index}-private` ? (
+                      <Check size={12} className="text-green-500" />
+                    ) : isPremium ? (
+                      <Copy size={12} />
+                    ) : (
+                      <Lock size={12} />
+                    )}
+                  </Button>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </Card>
+  ))
+)}
             </div>
           )}
         </div>

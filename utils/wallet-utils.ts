@@ -353,7 +353,7 @@ async function sendTransactionViaJito(
   transaction: Transaction,
   signers: Keypair[],
   connection: Connection,
-  jitoRpcUrl: string = JITO_RPC_URL // Make the parameter optional with default value
+  jitoRpcUrl: string = JITO_RPC_URL // Add the parameter with default value
 ): Promise<string> {
   const block = await connection.getLatestBlockhash("confirmed");
   transaction.recentBlockhash = block.blockhash;
@@ -372,8 +372,9 @@ async function sendTransactionViaJito(
     params: [encodedTx],
   };
   
+  // Use the passed jitoRpcUrl instead of hardcoded value
   const jitoResponse = await axios.post(
-    `${JITO_RPC_URL}/api/v1/transactions`,
+    `${jitoRpcUrl}/api/v1/transactions`,
     payload,
     {
       headers: { "Content-Type": "application/json" },
