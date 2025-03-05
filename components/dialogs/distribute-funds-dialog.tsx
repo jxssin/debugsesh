@@ -40,7 +40,7 @@ export function DistributeFundsDialog({
   onOpenChange, 
   onDistribute,
   maxWallets,
-  minAmount = 0.001,
+  minAmount = 0.0001, // Changed from 0.001 to 0.0001
   maxAmount = 1,
   isPremium
 }: DistributeFundsDialogProps) {
@@ -146,7 +146,7 @@ export function DistributeFundsDialog({
                   value={[randomMinAmount]} 
                   min={minAmount} 
                   max={randomMaxAmount}
-                  step={0.001}
+                  step={0.0001}
                   onValueChange={([value]) => setRandomMinAmount(value)}
                 />
               </div>
@@ -161,7 +161,7 @@ export function DistributeFundsDialog({
                   value={[randomMaxAmount]} 
                   min={randomMinAmount} 
                   max={maxAmount}
-                  step={0.001}
+                  step={0.0001}
                   onValueChange={([value]) => setRandomMaxAmount(value)}
                 />
               </div>
@@ -178,7 +178,7 @@ export function DistributeFundsDialog({
                   onChange={handleAmountChange}
                   min={minAmount}
                   max={maxAmount}
-                  step={0.001}
+                  step={0.0001}
                 />
               </div>
             </>

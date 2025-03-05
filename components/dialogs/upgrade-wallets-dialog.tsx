@@ -1,6 +1,6 @@
 "use client"
 
-import { useState } from "react"
+import { useState, useEffect } from "react"
 import { Button } from "@/components/ui/button"
 import {
   Dialog,
@@ -15,7 +15,7 @@ import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group"
 import { Switch } from "@/components/ui/switch"
 import { Info } from "lucide-react"
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip"
-import { PLATFORMS } from "@/utils/wallet-utils"
+import { PLATFORMS, hasEnoughBalance, WalletInfo } from "@/utils/wallet-utils"
 
 interface UpgradeWalletsDialogProps {
   open: boolean
@@ -23,6 +23,7 @@ interface UpgradeWalletsDialogProps {
   onUpgrade: (options: UpgradeOptions) => void
   maxWallets: number
   isPremium: boolean
+  wallets?: WalletInfo[] // Pass wallets to check balances
 }
 
 export interface UpgradeOptions {
@@ -35,19 +36,34 @@ export function UpgradeWalletsDialog({
   onOpenChange, 
   onUpgrade,
   maxWallets,
-  isPremium
+  isPremium,
+  wallets = []
 }: UpgradeWalletsDialogProps) {
   const [platformKey, setPlatformKey] = useState<keyof typeof PLATFORMS>("TROJAN")
   const [selectedWallets, setSelectedWallets] = useState<number[]>([])
   const [selectAll, setSelectAll] = useState<boolean>(true)
   
-  const walletArray = Array.from({ length: maxWallets }, (_, i) => i);
+  // Filter out wallets that don't have enough balance
+  const eligibleWallets = wallets.map((wallet, index) => ({
+    index,
+    hasBalance: hasEnoughBalance(wallet)
+  })).filter(w => w.hasBalance);
+  
+  const eligibleIndices = eligibleWallets.map(w => w.index);
+  
+  useEffect(() => {
+    // Reset selection when dialog opens
+    if (open) {
+      setSelectAll(true);
+      setSelectedWallets([]);
+    }
+  }, [open]);
   
   const handleUpgrade = () => {
-    // Calculate final wallet selection
+    // Calculate final wallet selection (only from eligible wallets)
     const finalSelection = selectAll 
-      ? walletArray 
-      : selectedWallets;
+      ? eligibleIndices 
+      : selectedWallets.filter(index => eligibleIndices.includes(index));
       
     onUpgrade({
       platformKey,
@@ -58,6 +74,10 @@ export function UpgradeWalletsDialog({
   };
   
   const toggleWallet = (walletIndex: number) => {
+    if (!eligibleIndices.includes(walletIndex)) {
+      return; // Only allow selection of eligible wallets
+    }
+    
     if (selectAll) {
       // If all are selected, deselect all first, then select the clicked one
       setSelectAll(false);
@@ -85,6 +105,13 @@ export function UpgradeWalletsDialog({
           </DialogDescription>
         </DialogHeader>
         <div className="grid gap-4 py-4">
+          {/* Display warning if no eligible wallets */}
+          {eligibleIndices.length === 0 && (
+            <div className="p-3 text-amber-600 dark:text-amber-400 bg-amber-50 dark:bg-amber-950 rounded-md border border-amber-200 dark:border-amber-800">
+              <strong>No eligible wallets found.</strong> Wallets need SOL balance to cover transaction fees for conversion.
+            </div>
+          )}
+          
           {/* Platform Selection */}
           <div className="grid gap-2">
             <Label>Select Platform Type</Label>
@@ -114,15 +141,15 @@ export function UpgradeWalletsDialog({
           <div className="flex items-center gap-2 rounded-md border p-3 shadow-sm bg-muted mt-2">
             <Info size={18} className="text-muted-foreground" />
             <div className="text-xs text-muted-foreground">
-              <p>Smart wallets pay a small tip to platform providers. Upgrading requires SOL in your <strong>funder wallet</strong>.</p>
+              <p>Smart wallets pay a small tip to platform providers. The funder wallet will pay the platform fee.</p>
             </div>
           </div>
           
           {/* Wallet Selection - Premium Feature */}
-          {isPremium && (
+          {isPremium && eligibleIndices.length > 0 && (
             <div className="grid gap-2 mt-2">
               <div className="flex items-center justify-between">
-                <Label htmlFor="select-all">Upgrade All Wallets</Label>
+                <Label htmlFor="select-all">Upgrade All Eligible Wallets</Label>
                 <Switch
                   id="select-all"
                   checked={selectAll}
@@ -138,19 +165,24 @@ export function UpgradeWalletsDialog({
               {!selectAll && (
                 <div className="mt-2 max-h-40 overflow-y-auto p-2 border rounded-md">
                   <div className="grid grid-cols-5 gap-2">
-                    {walletArray.map((index) => (
-                      <div 
-                        key={index} 
-                        className={`text-center p-1 rounded-md cursor-pointer text-sm ${
-                          selectedWallets.includes(index) 
-                            ? 'bg-primary text-primary-foreground' 
-                            : 'border hover:bg-muted'
-                        }`}
-                        onClick={() => toggleWallet(index)}
-                      >
-                        #{index + 1}
-                      </div>
-                    ))}
+                    {Array.from({ length: maxWallets }, (_, i) => i).map((index) => {
+                      const isEligible = eligibleIndices.includes(index);
+                      
+                      return (
+                        <div 
+                          key={index} 
+                          className={`text-center p-1 rounded-md ${isEligible ? 'cursor-pointer' : 'opacity-50 cursor-not-allowed'} text-sm ${
+                            selectedWallets.includes(index) 
+                              ? 'bg-primary text-primary-foreground' 
+                              : isEligible ? 'border hover:bg-muted' : 'border bg-muted-foreground/10'
+                          }`}
+                          onClick={() => toggleWallet(index)}
+                          title={isEligible ? undefined : "Insufficient balance"}
+                        >
+                          #{index + 1}
+                        </div>
+                      );
+                    })}
                   </div>
                 </div>
               )}
@@ -169,7 +201,7 @@ export function UpgradeWalletsDialog({
             </div>
             <div className="flex justify-between items-center">
               <span className="font-medium">Wallets to upgrade:</span>
-              <span>{selectAll ? maxWallets : selectedWallets.length}</span>
+              <span>{selectAll ? eligibleIndices.length : selectedWallets.filter(i => eligibleIndices.includes(i)).length}</span>
             </div>
           </div>
         </div>
@@ -182,7 +214,7 @@ export function UpgradeWalletsDialog({
           </Button>
           <Button 
             onClick={handleUpgrade}
-            disabled={(!selectAll && selectedWallets.length === 0)}
+            disabled={eligibleIndices.length === 0 || (!selectAll && selectedWallets.length === 0)}
           >
             Upgrade Wallets
           </Button>
