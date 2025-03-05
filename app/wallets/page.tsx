@@ -1,4 +1,3 @@
-// app/wallets/page.tsx
 "use client"
 
 import { useState, useEffect, useCallback } from "react"
@@ -27,6 +26,7 @@ import { useUser } from "@/contexts/user-context"
 import { useAuth } from "@/contexts/auth-context"
 import { supabase } from "@/lib/supabase"
 import bs58 from 'bs58'
+import { Connection, PublicKey, LAMPORTS_PER_SOL } from '@solana/web3.js'
 
 // Components
 import { GenerateWalletsDialog } from "@/components/dialogs/generate-wallets-dialog"
@@ -48,6 +48,10 @@ import {
   saveWalletsToSupabase,
   loadWalletsFromSupabase,
   deleteWalletsFromSupabase,
+  saveMainWalletToSupabase,
+  loadMainWalletsFromSupabase,
+  deleteMainWalletFromSupabase,
+  isSameWallet,
   hasEnoughBalance,
   maskPrivateKey,
   PLATFORMS,
@@ -98,28 +102,36 @@ export default function WalletsPage() {
       
       setIsLoading(true);
       try {
-        // Load wallets from Supabase
+        // 1. Load generated wallets from Supabase
         const wallets = await loadWalletsFromSupabase(user.id, supabase);
         
         if (wallets && wallets.length > 0) {
           setGeneratedWallets(wallets);
         }
         
-        // Load main wallets from localStorage as a fallback
-        const savedMainWallets = localStorage.getItem('mortality-main-wallets');
-        if (savedMainWallets) {
-          try {
-            const mainWalletData = JSON.parse(savedMainWallets);
-            if (mainWalletData.developer) setDeveloperWallet(mainWalletData.developer);
-            if (mainWalletData.funder) setFunderWallet(mainWalletData.funder);
-          } catch (error) {
-            console.error("Error parsing saved main wallets:", error);
-          }
+        // 2. Load main wallets (developer and funder) from Supabase
+        const mainWallets = await loadMainWalletsFromSupabase(user.id, supabase);
+        
+        if (mainWallets.developer) {
+          setDeveloperWallet(mainWallets.developer);
         }
         
-        // Auto-refresh balances when wallets are loaded
-        if ((wallets && wallets.length > 0) || developerWallet || funderWallet) {
-          refreshBalances();
+        if (mainWallets.funder) {
+          setFunderWallet(mainWallets.funder);
+        }
+        
+        // 3. If no wallets were loaded from Supabase, try loading from localStorage as a fallback
+        if (!mainWallets.developer && !mainWallets.funder) {
+          const savedMainWallets = localStorage.getItem('mortality-main-wallets');
+          if (savedMainWallets) {
+            try {
+              const mainWalletData = JSON.parse(savedMainWallets);
+              if (mainWalletData.developer) setDeveloperWallet(mainWalletData.developer);
+              if (mainWalletData.funder) setFunderWallet(mainWalletData.funder);
+            } catch (error) {
+              console.error("Error parsing saved main wallets:", error);
+            }
+          }
         }
       } catch (error) {
         console.error("Error loading saved wallets:", error);
@@ -133,17 +145,34 @@ export default function WalletsPage() {
       }
     }
     
-    loadSavedWallets();
-  }, [user]);
+    loadSavedWallets().then(() => {
+      // Auto-refresh balances after loading wallets
+      if (settings.rpcUrl) {
+        refreshBalances();
+      }
+    });
+  }, [user, settings.rpcUrl]);
 
-  // Save main wallets to localStorage whenever they change
+  // Update the main wallet state in Supabase whenever they change
   useEffect(() => {
+    // If user is logged in, save main wallets to Supabase whenever they change
+    if (user) {
+      if (developerWallet) {
+        saveMainWalletToSupabase(user.id, 'developer', developerWallet, supabase).catch(console.error);
+      }
+      
+      if (funderWallet) {
+        saveMainWalletToSupabase(user.id, 'funder', funderWallet, supabase).catch(console.error);
+      }
+    }
+    
+    // Also save to localStorage as a backup
     const mainWalletData = {
       developer: developerWallet,
       funder: funderWallet
     };
     localStorage.setItem('mortality-main-wallets', JSON.stringify(mainWalletData));
-  }, [developerWallet, funderWallet]);
+  }, [developerWallet, funderWallet, user]);
 
   const handleCopy = async (text: string, wallet: string) => {
     try {
@@ -203,10 +232,18 @@ export default function WalletsPage() {
           [developerWalletInfo],
           settings.rpcUrl
         );
-        setDeveloperWallet({
+        
+        const updatedDeveloperWallet = {
           ...developerWallet,
           balance: updatedDeveloper.balance
-        });
+        };
+        
+        setDeveloperWallet(updatedDeveloperWallet);
+        
+        // Save updated balance to Supabase
+        if (user) {
+          await saveMainWalletToSupabase(user.id, 'developer', updatedDeveloperWallet, supabase);
+        }
       }
       
       // Update funder wallet balance
@@ -220,10 +257,18 @@ export default function WalletsPage() {
           [funderWalletInfo],
           settings.rpcUrl
         );
-        setFunderWallet({
+        
+        const updatedFunderWallet = {
           ...funderWallet,
           balance: updatedFunder.balance
-        });
+        };
+        
+        setFunderWallet(updatedFunderWallet);
+        
+        // Save updated balance to Supabase
+        if (user) {
+          await saveMainWalletToSupabase(user.id, 'funder', updatedFunderWallet, supabase);
+        }
       }
       
       toast({
@@ -253,7 +298,7 @@ export default function WalletsPage() {
       });
       return;
     }
-
+  
     try {
       // Generate new wallets using the utility function
       const newWallets = await generateWallets(amount);
@@ -267,13 +312,18 @@ export default function WalletsPage() {
         hasTipped: false
       }));
       
-      const updatedWallets = [...generatedWallets, ...formattedWallets];
-      setGeneratedWallets(updatedWallets);
-      
-      // Save to Supabase if user is logged in
-      if (user) {
-        await saveWalletsToSupabase(user.id, updatedWallets, supabase);
-      }
+      // Use functional update to prevent state issues
+      setGeneratedWallets(prevWallets => {
+        const updatedWallets = [...prevWallets, ...formattedWallets];
+        
+        // Save to Supabase if user is logged in
+        if (user) {
+          saveWalletsToSupabase(user.id, updatedWallets, supabase)
+            .catch(error => console.error("Error saving new wallets:", error));
+        }
+        
+        return updatedWallets;
+      });
       
       // Refresh balances for the new wallets
       refreshBalances();
@@ -292,29 +342,63 @@ export default function WalletsPage() {
     }
   }
 
-  const handleImportPrivateKey = (privateKey: string) => {
-    if (!importingWalletType) return;
+  const handleImportPrivateKey = async (privateKey: string) => {
+    if (!importingWalletType || !user) return;
     
     try {
       // Try to create a keypair from the private key
       const keypair = parsePrivateKey(privateKey);
+      const publicKey = keypair.publicKey.toString();
+      
+      // Check if this wallet is already being used as the other type
+      if (
+        (importingWalletType === "developer" && funderWallet?.publicKey === publicKey) || 
+        (importingWalletType === "funder" && developerWallet?.publicKey === publicKey)
+      ) {
+        toast({
+          title: "Warning",
+          description: `This wallet is already being used as a ${importingWalletType === "developer" ? "funder" : "developer"} wallet. Using the same wallet for both roles is not recommended.`,
+          variant: "destructive"
+        });
+        // We continue with import but show the warning
+      }
       
       // Now we have a valid keypair
       const wallet = {
-        publicKey: keypair.publicKey.toString(),
+        publicKey: publicKey,
         privateKey: bs58.encode(keypair.secretKey),
         balance: null
       };
       
+      // Immediately fetch the balance if we have an RPC URL
+      if (settings.rpcUrl) {
+        try {
+          const connection = new Connection(settings.rpcUrl, 'confirmed');
+          const pubKey = new PublicKey(wallet.publicKey);
+          const balance = await connection.getBalance(pubKey);
+          wallet.balance = (balance / LAMPORTS_PER_SOL).toFixed(9);
+        } catch (err) {
+          console.error("Error fetching initial balance:", err);
+        }
+      }
+      
       // Update the appropriate wallet
       if (importingWalletType === "developer") {
         setDeveloperWallet(wallet);
+        
+        // Save to Supabase
+        await saveMainWalletToSupabase(user.id, 'developer', wallet, supabase);
+        
         toast({
           title: "Developer Wallet Imported",
           description: "Successfully imported developer wallet."
         });
       } else if (importingWalletType === "funder") {
         setFunderWallet(wallet);
+        
+        // Save to Supabase
+        await saveMainWalletToSupabase(user.id, 'funder', wallet, supabase);
+        
         toast({
           title: "Funder Wallet Imported",
           description: "Successfully imported funder wallet."
@@ -332,7 +416,7 @@ export default function WalletsPage() {
         variant: "destructive"
       });
     }
-  }
+  };
 
   const handleImportWallets = (file: File) => {
     if (!isPremium) return;
@@ -558,12 +642,20 @@ export default function WalletsPage() {
         return;
       }
       
+      // Add Jito settings
+      const jitoSettings = {
+        useJito: settings.jitoProxyless || false,
+        jitoRpcUrl: settings.blockEngine || undefined,
+        maxTipAmount: parseFloat(settings.jitoTipAmount) || 0.0005
+      };
+      
       // Execute the distribution
       const txResults = await distributeFunds(
         funderWallet.privateKey,
         targetWallets,
         options.amount,
-        settings.rpcUrl
+        settings.rpcUrl,
+        jitoSettings
       );
       
       const successCount = txResults.filter(tx => tx !== null).length;

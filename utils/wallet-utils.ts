@@ -143,33 +143,203 @@ export async function deleteWalletsFromSupabase(userId: string, walletPublicKeys
 }
 
 /**
+ * Save main wallet (developer or funder) to Supabase
+ * @param userId User ID
+ * @param walletType 'developer' or 'funder'
+ * @param wallet The wallet to save
+ * @param supabase Supabase client
+ * @returns Success status
+ */
+export async function saveMainWalletToSupabase(
+  userId: string, 
+  walletType: 'developer' | 'funder', 
+  wallet: { publicKey: string, privateKey: string, balance: string | null },
+  supabase: any
+): Promise<boolean> {
+  try {
+    // First check if a wallet of this type already exists
+    const { data: existingWallet } = await supabase
+      .from('user_main_wallets')
+      .select('*')
+      .eq('user_id', userId)
+      .eq('wallet_type', walletType)
+      .single();
+      
+    if (existingWallet) {
+      // Update existing wallet
+      const { error } = await supabase
+        .from('user_main_wallets')
+        .update({
+          public_key: wallet.publicKey,
+          private_key: wallet.privateKey,
+          balance: wallet.balance,
+          updated_at: new Date().toISOString()
+        })
+        .eq('user_id', userId)
+        .eq('wallet_type', walletType);
+        
+      if (error) {
+        console.error(`Error updating ${walletType} wallet:`, error);
+        return false;
+      }
+    } else {
+      // Insert new wallet
+      const { error } = await supabase
+        .from('user_main_wallets')
+        .insert({
+          user_id: userId,
+          wallet_type: walletType,
+          public_key: wallet.publicKey,
+          private_key: wallet.privateKey,
+          balance: wallet.balance
+        });
+        
+      if (error) {
+        console.error(`Error saving ${walletType} wallet:`, error);
+        return false;
+      }
+    }
+    
+    return true;
+  } catch (error) {
+    console.error(`Failed to save ${walletType} wallet to Supabase:`, error);
+    return false;
+  }
+}
+
+/**
+ * Load main wallets (developer and funder) from Supabase
+ * @param userId User ID
+ * @param supabase Supabase client
+ * @returns Object containing developer and funder wallets
+ */
+export async function loadMainWalletsFromSupabase(
+  userId: string,
+  supabase: any
+): Promise<{ 
+  developer: { publicKey: string, privateKey: string, balance: string | null } | null, 
+  funder: { publicKey: string, privateKey: string, balance: string | null } | null 
+}> {
+  try {
+    const { data, error } = await supabase
+      .from('user_main_wallets')
+      .select('*')
+      .eq('user_id', userId);
+      
+    if (error) {
+      console.error('Error loading main wallets from Supabase:', error);
+      return { developer: null, funder: null };
+    }
+    
+    // Format the returned data
+    const result = { 
+      developer: null as any, 
+      funder: null as any 
+    };
+    
+    if (data && data.length > 0) {
+      data.forEach((wallet: any) => {
+        if (wallet.wallet_type === 'developer') {
+          result.developer = {
+            publicKey: wallet.public_key,
+            privateKey: wallet.private_key,
+            balance: wallet.balance
+          };
+        } else if (wallet.wallet_type === 'funder') {
+          result.funder = {
+            publicKey: wallet.public_key,
+            privateKey: wallet.private_key,
+            balance: wallet.balance
+          };
+        }
+      });
+    }
+    
+    return result;
+  } catch (error) {
+    console.error('Failed to load main wallets from Supabase:', error);
+    return { developer: null, funder: null };
+  }
+}
+
+/**
+ * Delete a main wallet from Supabase
+ * @param userId User ID
+ * @param walletType 'developer' or 'funder'
+ * @param supabase Supabase client
+ * @returns Success status
+ */
+export async function deleteMainWalletFromSupabase(
+  userId: string,
+  walletType: 'developer' | 'funder',
+  supabase: any
+): Promise<boolean> {
+  try {
+    const { error } = await supabase
+      .from('user_main_wallets')
+      .delete()
+      .eq('user_id', userId)
+      .eq('wallet_type', walletType);
+      
+    if (error) {
+      console.error(`Error deleting ${walletType} wallet:`, error);
+      return false;
+    }
+    
+    return true;
+  } catch (error) {
+    console.error(`Failed to delete ${walletType} wallet from Supabase:`, error);
+    return false;
+  }
+}
+
+/**
+ * Check if the wallets are the same
+ * @param wallet1 First wallet public key
+ * @param wallet2 Second wallet public key
+ * @returns True if the wallets are the same
+ */
+export function isSameWallet(wallet1: string | null | undefined, wallet2: string | null | undefined): boolean {
+  if (!wallet1 || !wallet2) return false;
+  return wallet1 === wallet2;
+}
+
+/**
  * Get the optimal Jito tip amount based on current network conditions
  */
-async function getOptimalJitoTip(): Promise<number> {
+async function getOptimalJitoTip(maxTipAmount?: number): Promise<number> {
   try {
-    const response = await axios.get('https://bundles.jito.wtf/api/v1/bundles/tip_floor');
+    // Use a fallback value if endpoint access fails due to CORS
+    // Default to 0.0001 SOL (100,000 lamports)
+    const defaultTip = 0.0001 * LAMPORTS_PER_SOL;
+    const userMaxTip = maxTipAmount ? maxTipAmount * LAMPORTS_PER_SOL : 0.0005 * LAMPORTS_PER_SOL;
     
-    if (response.data && response.data.landed_tips_75th_percentile) {
-      // Get 75th percentile in lamports
-      const tipBase = response.data.landed_tips_75th_percentile;
+    try {
+      const response = await axios.get('https://bundles.jito.wtf/api/v1/bundles/tip_floor');
       
-      // Add 50% extra
-      const tipWithExtra = Math.ceil(tipBase * 1.5);
-      
-      // Cap at 0.0005 SOL (500,000 lamports)
-      const maxTip = 0.0005 * LAMPORTS_PER_SOL;
-      const finalTip = Math.min(tipWithExtra, maxTip);
-      
-      console.log(`Jito tip: 75th percentile (${tipBase / LAMPORTS_PER_SOL} SOL) + 50% = ${finalTip / LAMPORTS_PER_SOL} SOL`);
-      
-      return finalTip;
-    } else {
-      console.warn('Invalid response from Jito API, using fallback tip amount');
-      return 0.0001 * LAMPORTS_PER_SOL;
+      if (response.data && response.data.landed_tips_75th_percentile) {
+        // Get 75th percentile in lamports
+        const tipBase = response.data.landed_tips_75th_percentile;
+        
+        // Add 50% extra
+        const tipWithExtra = Math.ceil(tipBase * 1.5);
+        
+        // Cap at user-defined max tip amount
+        const finalTip = Math.min(tipWithExtra, userMaxTip);
+        
+        console.log(`Jito tip: 75th percentile (${tipBase / LAMPORTS_PER_SOL} SOL) + 50% = ${finalTip / LAMPORTS_PER_SOL} SOL`);
+        
+        return finalTip;
+      }
+    } catch (error) {
+      console.error('Failed to fetch Jito tip amount:', error);
+      // Fallback silently
     }
+    
+    // Return default if API call fails
+    return defaultTip;
   } catch (error) {
-    console.error('Failed to fetch Jito tip amount:', error);
-    // Fallback to default 0.0001 SOL tip
+    console.error('Error in getOptimalJitoTip:', error);
     return 0.0001 * LAMPORTS_PER_SOL;
   }
 }
@@ -182,7 +352,8 @@ function getRandomJitoTipAccount(): PublicKey {
 async function sendTransactionViaJito(
   transaction: Transaction,
   signers: Keypair[],
-  connection: Connection
+  connection: Connection,
+  jitoRpcUrl: string = JITO_RPC_URL // Make the parameter optional with default value
 ): Promise<string> {
   const block = await connection.getLatestBlockhash("confirmed");
   transaction.recentBlockhash = block.blockhash;
@@ -394,13 +565,17 @@ export async function distributeFunds(
   wallets: WalletInfo[],
   amountPerWallet: number, 
   rpcUrl: string,
-  useJito: boolean = false,
+  jitoSettings?: { useJito?: boolean, jitoRpcUrl?: string, maxTipAmount?: number },
   retryCount: number = 0
 ): Promise<(string | null)[]> {
   try {
     const connection = new Connection(rpcUrl, 'confirmed');
     const funderKeypair = parsePrivateKey(funderPrivateKey);
     const results: (string | null)[] = [];
+    
+    // Get jito settings or use defaults
+    const useJito = jitoSettings?.useJito || false;
+    const jitoRpcUrlToUse = jitoSettings?.jitoRpcUrl || JITO_RPC_URL;
     
     // Process wallets in batches to avoid rate limiting
     const batchSize = 5;
@@ -414,7 +589,7 @@ export async function distributeFunds(
           // Add Jito tip if needed
           if (useJito) {
             const jitoTipAccount = getRandomJitoTipAccount();
-            const jitoTipAmount = await getOptimalJitoTip();
+            const jitoTipAmount = await getOptimalJitoTip(jitoSettings?.maxTipAmount);
             
             transaction.add(
               SystemProgram.transfer({
@@ -434,14 +609,19 @@ export async function distributeFunds(
             })
           );
           
+          // Get latest blockhash
+          const { blockhash, lastValidBlockHeight } = await connection.getLatestBlockhash();
+          transaction.recentBlockhash = blockhash;
+          transaction.lastValidBlockHeight = lastValidBlockHeight;
+          transaction.feePayer = funderKeypair.publicKey;
+          
           // Send and confirm transaction
           let signature: string;
           
           try {
             if (useJito) {
-              signature = await sendTransactionViaJito(transaction, [funderKeypair], connection);
+              signature = await sendTransactionViaJito(transaction, [funderKeypair], connection, jitoRpcUrlToUse);
             } else {
-              transaction.feePayer = funderKeypair.publicKey;
               signature = await sendAndConfirmTransaction(connection, transaction, [funderKeypair]);
             }
           } catch (err: any) {
@@ -456,7 +636,7 @@ export async function distributeFunds(
                 [wallet], 
                 amountPerWallet, 
                 rpcUrl, 
-                false, 
+                { useJito: false }, 
                 retryCount + 1
               );
               return singleRetry[0];
@@ -469,7 +649,11 @@ export async function distributeFunds(
                 [wallet], 
                 amountPerWallet, 
                 rpcUrl, 
-                true, 
+                { 
+                  useJito: true,
+                  jitoRpcUrl: jitoRpcUrlToUse,
+                  maxTipAmount: jitoSettings?.maxTipAmount
+                }, 
                 0
               );
               return singleRetry[0];
@@ -557,8 +741,8 @@ export async function returnFundsToFunder(
           
           // Simulate the transaction to get accurate fee estimate
           transaction.feePayer = walletKeypair.publicKey;
-          const { value: { feeCalculator } } = await connection.getRecentBlockhash();
-          const fee = feeCalculator.lamportsPerSignature * 10; // Add buffer for the fee
+          const { blockhash, lastValidBlockHeight } = await connection.getLatestBlockhash();
+          const fee = 5000 * 10; // Use fixed fee estimate of 5000 lamports per signature with buffer
           
           // Calculate the amount to send (balance - fees - jito tip)
           const amountToSend = balance - fee - jitoTipAmount;
