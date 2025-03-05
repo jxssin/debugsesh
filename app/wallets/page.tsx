@@ -20,7 +20,6 @@ import {
 import { Button } from "@/components/ui/button"
 import { Card } from "@/components/ui/card"
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip"
-import { useToast } from "@/hooks/use-toast"
 import { useSettings } from "@/contexts/settings-context"
 import { useUser } from "@/contexts/user-context"
 import { useAuth } from "@/contexts/auth-context"
@@ -37,6 +36,10 @@ import { DistributeFundsDialog, DistributeOptions } from "@/components/dialogs/d
 import { UpgradeWalletsDialog, UpgradeOptions } from "@/components/dialogs/upgrade-wallets-dialog"
 import { ReturnFundsDialog, ReturnOptions } from "@/components/dialogs/return-funds-dialog"
 import ProtectedRoute from "@/components/protected-route"
+
+// Hooks
+import { useToast } from "@/hooks/use-toast"
+import { useCachedBalances } from "@/hooks/use-cached-balances";
 
 // Utils
 import { 
@@ -88,8 +91,20 @@ export default function WalletsPage() {
   const [developerWallet, setDeveloperWallet] = useState<MainWallet | null>(null)
   const [funderWallet, setFunderWallet] = useState<MainWallet | null>(null)
   
-  // Processing states
-  const [isRefreshing, setIsRefreshing] = useState(false)
+  // Use cached balances hook
+const { 
+  wallets: cachedWallets, 
+  developerWallet: cachedDevWallet, 
+  funderWallet: cachedFundWallet, 
+  isRefreshing, 
+  refreshBalances 
+} = useCachedBalances(
+  generatedWallets,
+  developerWallet,
+  funderWallet,
+  settings.rpcUrl || null
+);
+// Processing states
   const [isDistributing, setIsDistributing] = useState(false)
   const [isUpgrading, setIsUpgrading] = useState(false)
   const [isReturning, setIsReturning] = useState(false)
@@ -120,7 +135,7 @@ useEffect(() => {
         setFunderWallet(mainWallets.funder);
       }
       
-      // 3. If no wallets were loaded from Supabase, try loading from localStorage as a fallback
+      // If no wallets were loaded from Supabase, try loading from localStorage as a fallback
       if (!mainWallets.developer && !mainWallets.funder) {
         const savedMainWallets = localStorage.getItem('mortality-main-wallets');
         if (savedMainWallets) {
@@ -193,99 +208,6 @@ useEffect(() => {
       console.error("Failed to copy text: ", err);
     }
   }
-
-  const refreshBalances = useCallback(async () => {
-    if (!settings.rpcUrl) {
-      toast({
-        title: "RPC URL Required",
-        description: "Please configure an RPC URL in the settings first.",
-        variant: "destructive"
-      });
-      return;
-    }
-
-    setIsRefreshing(true);
-    
-    try {
-      // Update generated wallets' balances
-      if (generatedWallets.length > 0) {
-        const updatedWallets = await refreshWalletBalances(
-          generatedWallets,
-          settings.rpcUrl
-        );
-        setGeneratedWallets(updatedWallets);
-        
-        // Save updated balances to Supabase
-        if (user) {
-          await saveWalletsToSupabase(user.id, updatedWallets, supabase);
-        }
-      }
-      
-      // Update developer wallet balance
-      if (developerWallet) {
-        const developerWalletInfo = { 
-          publicKey: developerWallet.publicKey, 
-          privateKey: developerWallet.privateKey,
-          balance: null
-        };
-        const [updatedDeveloper] = await refreshWalletBalances(
-          [developerWalletInfo],
-          settings.rpcUrl
-        );
-        
-        const updatedDeveloperWallet = {
-          ...developerWallet,
-          balance: updatedDeveloper.balance
-        };
-        
-        setDeveloperWallet(updatedDeveloperWallet);
-        
-        // Save updated balance to Supabase
-        if (user) {
-          await saveMainWalletToSupabase(user.id, 'developer', updatedDeveloperWallet, supabase);
-        }
-      }
-      
-      // Update funder wallet balance
-      if (funderWallet) {
-        const funderWalletInfo = { 
-          publicKey: funderWallet.publicKey, 
-          privateKey: funderWallet.privateKey,
-          balance: null
-        };
-        const [updatedFunder] = await refreshWalletBalances(
-          [funderWalletInfo],
-          settings.rpcUrl
-        );
-        
-        const updatedFunderWallet = {
-          ...funderWallet,
-          balance: updatedFunder.balance
-        };
-        
-        setFunderWallet(updatedFunderWallet);
-        
-        // Save updated balance to Supabase
-        if (user) {
-          await saveMainWalletToSupabase(user.id, 'funder', updatedFunderWallet, supabase);
-        }
-      }
-      
-      toast({
-        title: "Balances Updated",
-        description: "All wallet balances have been refreshed."
-      });
-    } catch (error) {
-      console.error("Error refreshing balances:", error);
-      toast({
-        title: "Error",
-        description: "Failed to refresh wallet balances.",
-        variant: "destructive"
-      });
-    } finally {
-      setIsRefreshing(false);
-    }
-  }, [generatedWallets, developerWallet, funderWallet, settings.rpcUrl, toast, user]);
 
   // Handle generating new wallets
   const handleGenerateWallets = async (amount: number) => {

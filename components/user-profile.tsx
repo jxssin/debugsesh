@@ -14,6 +14,15 @@ import {
 import { Button } from "@/components/ui/button";
 import { supabase } from "@/lib/supabase";
 
+// Avatar URL cache to prevent unnecessary reloads
+const avatarCache = {
+  url: null as string | null,
+  timestamp: 0
+};
+
+// Cache expires after 5 minutes
+const AVATAR_CACHE_EXPIRY = 5 * 60 * 1000;
+
 export function UserProfile() {
   const { user, refreshSession } = useAuth();
   const { isPremium } = useUser();
@@ -36,17 +45,28 @@ export function UserProfile() {
       
       setImageError(false);
       
+      // Check if we have a valid cached avatar URL
+      const now = Date.now();
+      if (avatarCache.url && (now - avatarCache.timestamp) < AVATAR_CACHE_EXPIRY) {
+        setCurrentAvatar(avatarCache.url);
+        return;
+      }
+      
       // Check if user has an avatar URL in metadata
       if (user.user_metadata?.avatar_url) {
-        console.log("Avatar URL from metadata:", user.user_metadata.avatar_url);
         // Add timestamp to prevent caching
-        const timestampedUrl = `${user.user_metadata.avatar_url}?t=${Date.now()}`;
+        const timestampedUrl = `${user.user_metadata.avatar_url}?t=${now}`;
+        
+        // Update cache
+        avatarCache.url = timestampedUrl;
+        avatarCache.timestamp = now;
+        
         setCurrentAvatar(timestampedUrl);
       }
     };
     
     loadAvatar();
-  }, [user]);
+  }, [user?.user_metadata?.avatar_url]); // Only reload if the avatar URL changes
 
   const handleProfileClick = () => {
     setShowUploadDialog(true);
@@ -153,6 +173,11 @@ export function UserProfile() {
       
       // Update local state with the new avatar URL (with timestamp for cache busting)
       const avatarWithTimestamp = `${publicUrlData.publicUrl}?t=${timestamp}`;
+      
+      // Update cache
+      avatarCache.url = avatarWithTimestamp;
+      avatarCache.timestamp = Date.now();
+      
       setCurrentAvatar(avatarWithTimestamp);
       setImageError(false);
       

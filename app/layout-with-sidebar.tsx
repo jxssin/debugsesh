@@ -1,6 +1,6 @@
 "use client"
 
-import type React from "react"
+import React from "react"
 import Link from "next/link"
 import { usePathname } from "next/navigation"
 import { LayoutDashboard, RocketIcon, Wallet, Settings } from "lucide-react"
@@ -9,6 +9,8 @@ import { SidebarLogout } from "@/components/sidebar-logout"
 import { UserProfile } from "@/components/user-profile"
 import { SolanaPrice } from "@/components/solana-price"
 import { DiscIcon, XIcon } from "@/components/social-icons"
+
+// Removed React.memo - causing infinite loops
 
 const sidebarItems = [
   {
@@ -51,10 +53,10 @@ export default function LayoutWithSidebar({
           </Link>
         </div>
 
-        {/* Profile Section */}
+        {/* Profile Section - removed React.memo */}
         <UserProfile />
 
-        {/* Solana Price */}
+        {/* Solana Price - removed React.memo */}
         <SolanaPrice />
 
         {/* Navigation */}
