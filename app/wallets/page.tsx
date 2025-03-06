@@ -113,23 +113,34 @@ export default function WalletsPage() {
   
   // Function to save all balances to Supabase
   const saveAllBalancesToSupabase = useCallback(async () => {
-    if (!user) return;
+    if (!user) {
+      console.log("No user, skipping Supabase save");
+      return;
+    }
     
     try {
+      console.log("Starting to save balances to Supabase...");
+      
       // Save generated wallets
       if (cachedWallets.length > 0) {
+        console.log(`Saving ${cachedWallets.length} generated wallets to Supabase with balances:`, 
+          cachedWallets.map(w => ({pubkey: w.publicKey.slice(0,8), balance: w.balance})));
         await saveWalletsToSupabase(user.id, cachedWallets, supabase);
       }
       
       // Save developer wallet
       if (cachedDevWallet) {
+        console.log(`Saving developer wallet to Supabase: ${cachedDevWallet.publicKey.slice(0,8)} with balance ${cachedDevWallet.balance}`);
         await saveMainWalletToSupabase(user.id, 'developer', cachedDevWallet, supabase);
       }
       
       // Save funder wallet
       if (cachedFundWallet) {
+        console.log(`Saving funder wallet to Supabase: ${cachedFundWallet.publicKey.slice(0,8)} with balance ${cachedFundWallet.balance}`);
         await saveMainWalletToSupabase(user.id, 'funder', cachedFundWallet, supabase);
       }
+      
+      console.log("Successfully saved all balances to Supabase");
     } catch (error) {
       console.error('Failed to save balances to Supabase:', error);
     }
@@ -839,431 +850,431 @@ export default function WalletsPage() {
         <>
           <RefreshCw size={14} className="animate-spin" />
           <span className="text-muted-foreground">Checking balance...</span>
-        </>
-      ) : (
-        <div className="text-base animate-in fade-in-50 duration-300">{amount} SOL</div>
-      )}
-    </div>
-  );  
+       </>
+     ) : (
+       <div className="text-base animate-in fade-in-50 duration-300">{amount} SOL</div>
+     )}
+   </div>
+ );
 
-  // Check if any wallets have large balances (for return funds warning)
-  const hasWalletsWithLargeBalances = generatedWallets.some(
-    wallet => wallet.balance && parseFloat(wallet.balance) > 0.1
-  );
-  
-  return (
-    <ProtectedRoute>
-      <div className="p-6 max-w-[1200px] mx-auto space-y-6">
-        {/* Header Section */}
-        <div className="flex flex-col space-y-4">
-          <div className="flex items-center justify-between">
-            <h1 className="text-2xl font-bold">MAIN WALLETS</h1>
-            <div className="flex items-center gap-3">
-              <Button
-                variant="outline"
-                className="transition-transform duration-200 hover:scale-105 hover:shadow-lg flex items-center gap-2"
-                onClick={handleRefreshBalances}
-                disabled={isRefreshing}
-              >
-                <RefreshCw size={16} className={isRefreshing ? "animate-spin" : ""} />
-                REFRESH BALANCES
-              </Button>
-              <Button
-                className="bg-black text-white transition-transform duration-200 hover:scale-105 hover:shadow-lg hover:bg-black flex items-center gap-2"
-                onClick={() => setShowGenerateDialog(true)}
-              >
-                <Plus size={16} />
-                GENERATE
-              </Button>
-              <Button
-                variant="outline"
-                className="transition-transform duration-200 hover:scale-105 hover:shadow-lg flex items-center gap-2"
-                onClick={() => setShowImportDialog(true)}
-                disabled={!isPremium}
-              >
-                <Import size={16} />
-                IMPORT
-              </Button>
-              <Button
-                variant="outline"
-                className="transition-transform duration-200 hover:scale-105 hover:shadow-lg flex items-center gap-2"
-                onClick={handleSaveWallets}
-                disabled={!isPremium || generatedWallets.length === 0}
-              >
-                <Save size={16} />
-                SAVE
-              </Button>
-              <Button
-                variant="outline"
-                className="transition-transform duration-200 hover:scale-105 hover:shadow-lg flex items-center gap-2"
-                onClick={() => setShowClearWalletsDialog(true)}
-                disabled={generatedWallets.length === 0}
-              >
-                <Trash2 size={16} />
-                CLEAR ALL
-              </Button>
-            </div>
-          </div>
-        </div>
-  
-        {/* Main Wallets Section */}
-        <div className="grid md:grid-cols-2 gap-6">
-          {/* DEVELOPER WALLET */}
-          <Card className="border-2">
-            <div className="p-6 space-y-4">
-              <div className="flex items-center justify-between">
-                <div className="flex items-center gap-2">
-                  <h2 className="text-xl font-semibold">DEVELOPER</h2>
-                  <TooltipProvider>
-                    <Tooltip>
-                      <TooltipTrigger asChild>
-                        <Button variant="ghost" size="icon" className="h-5 w-5">
-                          <Info size={16} />
-                        </Button>
-                      </TooltipTrigger>
-                      <TooltipContent>
-                        <p>Developer wallet is used for testing and development purposes.</p>
-                      </TooltipContent>
-                    </Tooltip>
-                  </TooltipProvider>
-                </div>
-                <div className="flex gap-2">
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    className="transition-transform duration-200 hover:scale-105 hover:shadow-lg flex items-center gap-2"
-                    onClick={() => {
-                      setImportingWalletType("developer")
-                      setShowImportPrivateKeyDialog(true)
-                    }}
-                  >
-                    <Import size={16} />
-                    Import
-                  </Button>
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    className="transition-transform duration-200 hover:scale-105 hover:shadow-lg flex items-center gap-2"
-                    onClick={() => handleExportWallet("developer")}
-                    disabled={!cachedDevWallet || !isPremium}
-                  >
-                    <Export size={16} />
-                    Export
-                  </Button>
-                </div>
-              </div>
-              <div className="space-y-3">
-                <div>
-                  <label className="text-sm font-medium">Public Key</label>
-                  <div className="flex items-center gap-1">
-                    <div className="font-mono text-base truncate">
-                      {cachedDevWallet ? cachedDevWallet.publicKey : "No wallet imported"}
-                    </div>
-                    {cachedDevWallet && (
-                      <Button
-                        variant="ghost"
-                        size="icon"
-                        className="h-6 w-6 shrink-0"
-                        onClick={() => handleCopy(cachedDevWallet.publicKey, "developer")}
-                      >
-                        {copySuccess === "developer" ? <Check size={12} className="text-green-500" /> : <Copy size={12} />}
-                      </Button>
-                    )}
-                  </div>
-                </div>
-                <div>
-                  <label className="text-sm font-medium">Balance</label>
-                  {cachedDevWallet ? (
-                    <BalanceDisplay amount={cachedDevWallet.balance} />
-                  ) : (
-                    <div className="text-muted-foreground">Import a wallet to view balance</div>
-                  )}
-                </div>
-              </div>
-            </div>
-          </Card>
-  
-          {/* FUNDER WALLET */}
-          <Card className="border-2">
-            <div className="p-6 space-y-4">
-              <div className="flex items-center justify-between">
-                <div className="flex items-center gap-2">
-                  <h2 className="text-xl font-semibold">FUNDER</h2>
-                  <TooltipProvider>
-                    <Tooltip>
-                      <TooltipTrigger asChild>
-                        <Button variant="ghost" size="icon" className="h-5 w-5">
-                          <Info size={16} />
-                        </Button>
-                      </TooltipTrigger>
-                      <TooltipContent>
-                        <p>Funder wallet is used to distribute funds to generated wallets.</p>
-                      </TooltipContent>
-                    </Tooltip>
-                  </TooltipProvider>
-                </div>
-                <div className="flex gap-2">
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    className="transition-transform duration-200 hover:scale-105 hover:shadow-lg flex items-center gap-2"
-                    onClick={() => {
-                      setImportingWalletType("funder")
-                      setShowImportPrivateKeyDialog(true)
-                    }}
-                  >
-                    <Import size={16} />
-                    Import
-                  </Button>
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    className="transition-transform duration-200 hover:scale-105 hover:shadow-lg flex items-center gap-2"
-                    onClick={() => handleExportWallet("funder")}
-                    disabled={!cachedFundWallet || !isPremium}
-                  >
-                    <Export size={16} />
-                    Export
-                  </Button>
-                </div>
-              </div>
-              <div className="space-y-3">
-                <div>
-                  <label className="text-sm font-medium">Public Key</label>
-                  <div className="flex items-center gap-1">
-                    <div className="font-mono text-base truncate">
-                      {cachedFundWallet ? cachedFundWallet.publicKey : "No wallet imported"}
-                    </div>
-                    {cachedFundWallet && (
-                      <Button
-                        variant="ghost"
-                        size="icon"
-                        className="h-6 w-6 shrink-0"
-                        onClick={() => handleCopy(cachedFundWallet.publicKey, "funder")}
-                      >
-                        {copySuccess === "funder" ? <Check size={12} className="text-green-500" /> : <Copy size={12} />}
-                      </Button>
-                    )}
-                  </div>
-                </div>
-                <div>
-                  <label className="text-sm font-medium">Balance</label>
-                  {cachedFundWallet ? (
-                    <BalanceDisplay amount={cachedFundWallet.balance} />
-                  ) : (
-                    <div className="text-muted-foreground">Import a wallet to view balance</div>
-                  )}
-                </div>
-              </div>
-            </div>
-          </Card>
-        </div>
-  
-        {/* Action Buttons */}
-        <div className="flex justify-center gap-4">
-          <Button 
-            className="bg-black text-white transition-transform duration-200 hover:scale-105 hover:shadow-lg hover:bg-black flex items-center gap-2"
-            onClick={() => setShowDistributeDialog(true)}
-            disabled={!cachedFundWallet || cachedWallets.length === 0 || isDistributing}
-          >
-            {isDistributing ? (
-              <>
-                <Loader2 size={16} className="animate-spin" />
-                DISTRIBUTING...
-              </>
-            ) : (
-              <>
-                <SendHorizontal size={16} />
-                DISTRIBUTE FUNDS
-              </>
-            )}
-          </Button>
-          <Button 
-            className="bg-black text-white transition-transform duration-200 hover:scale-105 hover:shadow-lg hover:bg-black flex items-center gap-2"
-            onClick={() => setShowUpgradeDialog(true)}
-            disabled={!cachedFundWallet || walletsWithBalance === 0 || isUpgrading}
-          >
-            {isUpgrading ? (
-              <>
-                <Loader2 size={16} className="animate-spin" />
-                UPGRADING...
-              </>
-            ) : (
-              <>
-                <ArrowUpCircle size={16} />
-                UPGRADE WALLETS
-              </>
-            )}
-          </Button>
-          <Button 
-            className="bg-black text-white transition-transform duration-200 hover:scale-105 hover:shadow-lg hover:bg-black flex items-center gap-2"
-            onClick={() => setShowReturnDialog(true)}
-            disabled={!cachedFundWallet || cachedWallets.length === 0 || isReturning}
-          >
-            {isReturning ? (
-              <>
-                <Loader2 size={16} className="animate-spin" />
-                RETURNING...
-              </>
-            ) : (
-              <>
-                <RotateCcw size={16} />
-                RETURN FUNDS
-              </>
-            )}
-          </Button>
-        </div>
-  
-        {/* Generated Wallets Section */}
-        <div className="space-y-4">
-          <h2 className="text-xl font-semibold">GENERATED WALLETS ({cachedWallets.length}/100)</h2>
-          {isLoading ? (
-            <div className="flex justify-center items-center p-12">
-              <Loader2 className="h-8 w-8 animate-spin" />
-            </div>
-          ) : (
-            <div className="grid gap-4">
-              {cachedWallets.length === 0 ? (
-                <div className="text-center p-6 text-muted-foreground">
-                  No wallets generated yet. Click "GENERATE" to create new wallets.
-                </div>
-              ) : (
-                cachedWallets.map((wallet, index) => (
-                  <Card key={`wallet-${wallet.publicKey}-${index}`} className="p-4">
-                    <div className="flex items-center gap-4">
-                      <Button
-                        variant="ghost"
-                        size="icon"
-                        className="text-muted-foreground hover:text-foreground transition-transform duration-200 hover:scale-105"
-                        onClick={() => handleDeleteWallet(index)}
-                      >
-                        <Trash2 size={20} />
-                      </Button>
-                      <div className="flex items-center gap-4 flex-1">
-                        <span className="font-semibold">#{index + 1}</span>
-                        <div className="grid sm:grid-cols-[minmax(120px,auto)_1fr] gap-3 sm:gap-6 w-full">
-                          <div>
-                            <label className="text-sm font-medium">Balance</label>
-                            <BalanceDisplay amount={wallet.balance} />
-                            
-                            {/* Platform indicator badge */}
-                            {wallet.platform && wallet.platform !== "NONE" && (
-                              <div className="mt-1">
-                                <span className="inline-flex items-center rounded-md bg-blue-50 dark:bg-blue-900 px-2 py-1 text-xs font-medium text-blue-700 dark:text-blue-300 ring-1 ring-inset ring-blue-700/10 dark:ring-blue-300/20">
-                                  {wallet.platform}
-                                </span>
-                              </div>
-                            )}
-                          </div>
-                          <div className="space-y-2">
-                            <div>
-                              <label className="text-sm font-medium">Public Key</label>
-                              <div className="flex items-center gap-1">
-                                <div className="font-mono text-base truncate">{wallet.publicKey}</div>
-                                <Button
-                                  variant="ghost"
-                                  size="icon"
-                                  className="h-6 w-6 shrink-0"
-                                  onClick={() => handleCopy(wallet.publicKey, `generated-${index}`)}
-                                >
-                                  {copySuccess === `generated-${index}` ? (
-                                    <Check size={12} className="text-green-500" />
-                                  ) : (
-                                    <Copy size={12} />
-                                  )}
-                                </Button>
-                              </div>
-                            </div>
-                            <div>
-                              <label className="text-sm font-medium">Private Key</label>
-                              <div className="flex items-center gap-1">
-                                <div className="font-mono text-base truncate">
-                                  {isPremium ? wallet.privateKey : maskPrivateKey(wallet.privateKey)}
-                                </div>
-                                <Button
-                                  variant="ghost"
-                                  size="icon"
-                                  className="h-6 w-6 shrink-0"
-                                  onClick={() => handleCopy(wallet.privateKey, `generated-${index}-private`)}
-                                  disabled={!isPremium}
-                                >
-                                  {copySuccess === `generated-${index}-private` ? (
-                                    <Check size={12} className="text-green-500" />
-                                  ) : isPremium ? (
-                                    <Copy size={12} />
-                                  ) : (
-                                    <Lock size={12} />
-                                  )}
-                                </Button>
-                              </div>
-                            </div>
-                          </div>
-                        </div>
-                      </div>
-                    </div>
-                  </Card>
-                ))
-              )}
-            </div>
-          )}
-        </div>
-  
-        {/* Dialogs */}
-        <GenerateWalletsDialog
-          open={showGenerateDialog}
-          onOpenChange={setShowGenerateDialog}
-          onGenerate={handleGenerateWallets}
-        />
-  
-        <ImportWalletsDialog
-          open={showImportDialog}
-          onOpenChange={setShowImportDialog}
-          onImport={handleImportWallets}
-          isPremium={isPremium}
-        />
-  
-        <ImportPrivateKeyDialog
-          open={showImportPrivateKeyDialog}
-          onOpenChange={setShowImportPrivateKeyDialog}
-          onImport={handleImportPrivateKey}
-          walletType={importingWalletType || "developer"}
-        />
-  
-        <ClearWalletsDialog
-          open={showClearWalletsDialog}
-          onOpenChange={setShowClearWalletsDialog}
-          onConfirm={handleClearAllWallets}
-          isPremium={isPremium}
-        />
-        
-        <DistributeFundsDialog
-          open={showDistributeDialog}
-          onOpenChange={setShowDistributeDialog}
-          onDistribute={handleDistributeFunds}
-          maxWallets={cachedWallets.length}
-          minAmount={0.0001}
-          maxAmount={cachedFundWallet ? parseFloat(cachedFundWallet.balance || "0") : 1}
-          isPremium={isPremium}
-        />
-        
-        <UpgradeWalletsDialog
-          open={showUpgradeDialog}
-          onOpenChange={setShowUpgradeDialog}
-          onUpgrade={handleUpgradeWallets}
-          maxWallets={cachedWallets.length}
-          isPremium={isPremium}
-          wallets={cachedWallets}
-        />
-        
-        <ReturnFundsDialog
-          open={showReturnDialog}
-          onOpenChange={setShowReturnDialog}
-          onReturn={handleReturnFunds}
-          maxWallets={cachedWallets.length}
-          hasTooBigBalances={hasWalletsWithLargeBalances}
-          isPremium={isPremium}
-        />
-      </div>
-    </ProtectedRoute>
-  );
+ // Check if any wallets have large balances (for return funds warning)
+ const hasWalletsWithLargeBalances = generatedWallets.some(
+   wallet => wallet.balance && parseFloat(wallet.balance) > 0.1
+ );
+ 
+ return (
+   <ProtectedRoute>
+     <div className="p-6 max-w-[1200px] mx-auto space-y-6">
+       {/* Header Section */}
+       <div className="flex flex-col space-y-4">
+         <div className="flex items-center justify-between">
+           <h1 className="text-2xl font-bold">MAIN WALLETS</h1>
+           <div className="flex items-center gap-3">
+             <Button
+               variant="outline"
+               className="transition-transform duration-200 hover:scale-105 hover:shadow-lg flex items-center gap-2"
+               onClick={handleRefreshBalances}
+               disabled={isRefreshing}
+             >
+               <RefreshCw size={16} className={isRefreshing ? "animate-spin" : ""} />
+               REFRESH BALANCES
+             </Button>
+             <Button
+               className="bg-black text-white transition-transform duration-200 hover:scale-105 hover:shadow-lg hover:bg-black flex items-center gap-2"
+               onClick={() => setShowGenerateDialog(true)}
+             >
+               <Plus size={16} />
+               GENERATE
+             </Button>
+             <Button
+               variant="outline"
+               className="transition-transform duration-200 hover:scale-105 hover:shadow-lg flex items-center gap-2"
+               onClick={() => setShowImportDialog(true)}
+               disabled={!isPremium}
+             >
+               <Import size={16} />
+               IMPORT
+             </Button>
+             <Button
+               variant="outline"
+               className="transition-transform duration-200 hover:scale-105 hover:shadow-lg flex items-center gap-2"
+               onClick={handleSaveWallets}
+               disabled={!isPremium || generatedWallets.length === 0}
+             >
+               <Save size={16} />
+               SAVE
+             </Button>
+             <Button
+               variant="outline"
+               className="transition-transform duration-200 hover:scale-105 hover:shadow-lg flex items-center gap-2"
+               onClick={() => setShowClearWalletsDialog(true)}
+               disabled={generatedWallets.length === 0}
+             >
+               <Trash2 size={16} />
+               CLEAR ALL
+             </Button>
+           </div>
+         </div>
+       </div>
+
+       {/* Main Wallets Section */}
+       <div className="grid md:grid-cols-2 gap-6">
+         {/* DEVELOPER WALLET */}
+         <Card className="border-2">
+           <div className="p-6 space-y-4">
+             <div className="flex items-center justify-between">
+               <div className="flex items-center gap-2">
+                 <h2 className="text-xl font-semibold">DEVELOPER</h2>
+                 <TooltipProvider>
+                   <Tooltip>
+                     <TooltipTrigger asChild>
+                       <Button variant="ghost" size="icon" className="h-5 w-5">
+                         <Info size={16} />
+                       </Button>
+                     </TooltipTrigger>
+                     <TooltipContent>
+                       <p>Developer wallet is used for testing and development purposes.</p>
+                     </TooltipContent>
+                   </Tooltip>
+                 </TooltipProvider>
+               </div>
+               <div className="flex gap-2">
+                 <Button
+                   variant="outline"
+                   size="sm"
+                   className="transition-transform duration-200 hover:scale-105 hover:shadow-lg flex items-center gap-2"
+                   onClick={() => {
+                     setImportingWalletType("developer")
+                     setShowImportPrivateKeyDialog(true)
+                   }}
+                 >
+                   <Import size={16} />
+                   Import
+                 </Button>
+                 <Button
+                   variant="outline"
+                   size="sm"
+                   className="transition-transform duration-200 hover:scale-105 hover:shadow-lg flex items-center gap-2"
+                   onClick={() => handleExportWallet("developer")}
+                   disabled={!cachedDevWallet || !isPremium}
+                 >
+                   <Export size={16} />
+                   Export
+                 </Button>
+               </div>
+             </div>
+             <div className="space-y-3">
+               <div>
+                 <label className="text-sm font-medium">Public Key</label>
+                 <div className="flex items-center gap-1">
+                   <div className="font-mono text-base truncate">
+                     {cachedDevWallet ? cachedDevWallet.publicKey : "No wallet imported"}
+                   </div>
+                   {cachedDevWallet && (
+                     <Button
+                       variant="ghost"
+                       size="icon"
+                       className="h-6 w-6 shrink-0"
+                       onClick={() => handleCopy(cachedDevWallet.publicKey, "developer")}
+                     >
+                       {copySuccess === "developer" ? <Check size={12} className="text-green-500" /> : <Copy size={12} />}
+                     </Button>
+                   )}
+                 </div>
+               </div>
+               <div>
+                 <label className="text-sm font-medium">Balance</label>
+                 {cachedDevWallet ? (
+                   <BalanceDisplay amount={cachedDevWallet.balance} />
+                 ) : (
+                   <div className="text-muted-foreground">Import a wallet to view balance</div>
+                 )}
+               </div>
+             </div>
+           </div>
+         </Card>
+
+         {/* FUNDER WALLET */}
+         <Card className="border-2">
+           <div className="p-6 space-y-4">
+             <div className="flex items-center justify-between">
+               <div className="flex items-center gap-2">
+                 <h2 className="text-xl font-semibold">FUNDER</h2>
+                 <TooltipProvider>
+                   <Tooltip>
+                     <TooltipTrigger asChild>
+                       <Button variant="ghost" size="icon" className="h-5 w-5">
+                         <Info size={16} />
+                       </Button>
+                     </TooltipTrigger>
+                     <TooltipContent>
+                       <p>Funder wallet is used to distribute funds to generated wallets.</p>
+                     </TooltipContent>
+                   </Tooltip>
+                 </TooltipProvider>
+               </div>
+               <div className="flex gap-2">
+                 <Button
+                   variant="outline"
+                   size="sm"
+                   className="transition-transform duration-200 hover:scale-105 hover:shadow-lg flex items-center gap-2"
+                   onClick={() => {
+                     setImportingWalletType("funder")
+                     setShowImportPrivateKeyDialog(true)
+                   }}
+                 >
+                   <Import size={16} />
+                   Import
+                 </Button>
+                 <Button
+                   variant="outline"
+                   size="sm"
+                   className="transition-transform duration-200 hover:scale-105 hover:shadow-lg flex items-center gap-2"
+                   onClick={() => handleExportWallet("funder")}
+                   disabled={!cachedFundWallet || !isPremium}
+                 >
+                   <Export size={16} />
+                   Export
+                 </Button>
+               </div>
+             </div>
+             <div className="space-y-3">
+               <div>
+                 <label className="text-sm font-medium">Public Key</label>
+                 <div className="flex items-center gap-1">
+                   <div className="font-mono text-base truncate">
+                     {cachedFundWallet ? cachedFundWallet.publicKey : "No wallet imported"}
+                   </div>
+                   {cachedFundWallet && (
+                     <Button
+                       variant="ghost"
+                       size="icon"
+                       className="h-6 w-6 shrink-0"
+                       onClick={() => handleCopy(cachedFundWallet.publicKey, "funder")}
+                     >
+                       {copySuccess === "funder" ? <Check size={12} className="text-green-500" /> : <Copy size={12} />}
+                     </Button>
+                   )}
+                 </div>
+               </div>
+               <div>
+                 <label className="text-sm font-medium">Balance</label>
+                 {cachedFundWallet ? (
+                   <BalanceDisplay amount={cachedFundWallet.balance} />
+                 ) : (
+                   <div className="text-muted-foreground">Import a wallet to view balance</div>
+                 )}
+               </div>
+             </div>
+           </div>
+         </Card>
+       </div>
+
+       {/* Action Buttons */}
+       <div className="flex justify-center gap-4">
+         <Button 
+           className="bg-black text-white transition-transform duration-200 hover:scale-105 hover:shadow-lg hover:bg-black flex items-center gap-2"
+           onClick={() => setShowDistributeDialog(true)}
+           disabled={!cachedFundWallet || cachedWallets.length === 0 || isDistributing}
+         >
+           {isDistributing ? (
+             <>
+               <Loader2 size={16} className="animate-spin" />
+               DISTRIBUTING...
+             </>
+           ) : (
+             <>
+               <SendHorizontal size={16} />
+               DISTRIBUTE FUNDS
+             </>
+           )}
+         </Button>
+         <Button 
+           className="bg-black text-white transition-transform duration-200 hover:scale-105 hover:shadow-lg hover:bg-black flex items-center gap-2"
+           onClick={() => setShowUpgradeDialog(true)}
+           disabled={!cachedFundWallet || walletsWithBalance === 0 || isUpgrading}
+         >
+           {isUpgrading ? (
+             <>
+               <Loader2 size={16} className="animate-spin" />
+               UPGRADING...
+             </>
+           ) : (
+             <>
+               <ArrowUpCircle size={16} />
+               UPGRADE WALLETS
+             </>
+           )}
+         </Button>
+         <Button 
+           className="bg-black text-white transition-transform duration-200 hover:scale-105 hover:shadow-lg hover:bg-black flex items-center gap-2"
+           onClick={() => setShowReturnDialog(true)}
+           disabled={!cachedFundWallet || cachedWallets.length === 0 || isReturning}
+         >
+           {isReturning ? (
+             <>
+               <Loader2 size={16} className="animate-spin" />
+               RETURNING...
+             </>
+           ) : (
+             <>
+               <RotateCcw size={16} />
+               RETURN FUNDS
+             </>
+           )}
+         </Button>
+       </div>
+
+       {/* Generated Wallets Section */}
+       <div className="space-y-4">
+         <h2 className="text-xl font-semibold">GENERATED WALLETS ({cachedWallets.length}/100)</h2>
+         {isLoading ? (
+           <div className="flex justify-center items-center p-12">
+             <Loader2 className="h-8 w-8 animate-spin" />
+           </div>
+         ) : (
+           <div className="grid gap-4">
+             {cachedWallets.length === 0 ? (
+               <div className="text-center p-6 text-muted-foreground">
+                 No wallets generated yet. Click "GENERATE" to create new wallets.
+               </div>
+             ) : (
+               cachedWallets.map((wallet, index) => (
+                 <Card key={`wallet-${wallet.publicKey}-${index}`} className="p-4">
+                   <div className="flex items-center gap-4">
+                     <Button
+                       variant="ghost"
+                       size="icon"
+                       className="text-muted-foreground hover:text-foreground transition-transform duration-200 hover:scale-105"
+                       onClick={() => handleDeleteWallet(index)}
+                     >
+                       <Trash2 size={20} />
+                     </Button>
+                     <div className="flex items-center gap-4 flex-1">
+                       <span className="font-semibold">#{index + 1}</span>
+                       <div className="grid sm:grid-cols-[minmax(120px,auto)_1fr] gap-3 sm:gap-6 w-full">
+                         <div>
+                           <label className="text-sm font-medium">Balance</label>
+                           <BalanceDisplay amount={wallet.balance} />
+                           
+                           {/* Platform indicator badge */}
+                           {wallet.platform && wallet.platform !== "NONE" && (
+                             <div className="mt-1">
+                               <span className="inline-flex items-center rounded-md bg-blue-50 dark:bg-blue-900 px-2 py-1 text-xs font-medium text-blue-700 dark:text-blue-300 ring-1 ring-inset ring-blue-700/10 dark:ring-blue-300/20">
+                                 {wallet.platform}
+                               </span>
+                             </div>
+                           )}
+                         </div>
+                         <div className="space-y-2">
+                           <div>
+                             <label className="text-sm font-medium">Public Key</label>
+                             <div className="flex items-center gap-1">
+                               <div className="font-mono text-base truncate">{wallet.publicKey}</div>
+                               <Button
+                                 variant="ghost"
+                                 size="icon"
+                                 className="h-6 w-6 shrink-0"
+                                 onClick={() => handleCopy(wallet.publicKey, `generated-${index}`)}
+                               >
+                                 {copySuccess === `generated-${index}` ? (
+                                   <Check size={12} className="text-green-500" />
+                                 ) : (
+                                   <Copy size={12} />
+                                 )}
+                               </Button>
+                             </div>
+                           </div>
+                           <div>
+                             <label className="text-sm font-medium">Private Key</label>
+                             <div className="flex items-center gap-1">
+                               <div className="font-mono text-base truncate">
+                                 {isPremium ? wallet.privateKey : maskPrivateKey(wallet.privateKey)}
+                               </div>
+                               <Button
+                                 variant="ghost"
+                                 size="icon"
+                                 className="h-6 w-6 shrink-0"
+                                 onClick={() => handleCopy(wallet.privateKey, `generated-${index}-private`)}
+                                 disabled={!isPremium}
+                               >
+                                 {copySuccess === `generated-${index}-private` ? (
+                                   <Check size={12} className="text-green-500" />
+                                 ) : isPremium ? (
+                                   <Copy size={12} />
+                                 ) : (
+                                   <Lock size={12} />
+                                 )}
+                               </Button>
+                             </div>
+                           </div>
+                         </div>
+                       </div>
+                     </div>
+                   </div>
+                 </Card>
+               ))
+             )}
+           </div>
+         )}
+       </div>
+
+       {/* Dialogs */}
+       <GenerateWalletsDialog
+         open={showGenerateDialog}
+         onOpenChange={setShowGenerateDialog}
+         onGenerate={handleGenerateWallets}
+       />
+
+       <ImportWalletsDialog
+         open={showImportDialog}
+         onOpenChange={setShowImportDialog}
+         onImport={handleImportWallets}
+         isPremium={isPremium}
+       />
+
+       <ImportPrivateKeyDialog
+         open={showImportPrivateKeyDialog}
+         onOpenChange={setShowImportPrivateKeyDialog}
+         onImport={handleImportPrivateKey}
+         walletType={importingWalletType || "developer"}
+       />
+
+       <ClearWalletsDialog
+         open={showClearWalletsDialog}
+         onOpenChange={setShowClearWalletsDialog}
+         onConfirm={handleClearAllWallets}
+         isPremium={isPremium}
+       />
+       
+       <DistributeFundsDialog
+         open={showDistributeDialog}
+         onOpenChange={setShowDistributeDialog}
+         onDistribute={handleDistributeFunds}
+         maxWallets={cachedWallets.length}
+         minAmount={0.0001}
+         maxAmount={cachedFundWallet ? parseFloat(cachedFundWallet.balance || "0") : 1}
+         isPremium={isPremium}
+       />
+       
+       <UpgradeWalletsDialog
+         open={showUpgradeDialog}
+         onOpenChange={setShowUpgradeDialog}
+         onUpgrade={handleUpgradeWallets}
+         maxWallets={cachedWallets.length}
+         isPremium={isPremium}
+         wallets={cachedWallets}
+       />
+       
+       <ReturnFundsDialog
+         open={showReturnDialog}
+         onOpenChange={setShowReturnDialog}
+         onReturn={handleReturnFunds}
+         maxWallets={cachedWallets.length}
+         hasTooBigBalances={hasWalletsWithLargeBalances}
+         isPremium={isPremium}
+       />
+     </div>
+   </ProtectedRoute>
+ );
 }
