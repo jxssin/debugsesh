@@ -1,140 +1,98 @@
 // hooks/use-cached-balances.ts
 import { useState, useEffect, useCallback } from 'react';
 import { refreshWalletBalances, WalletInfo } from '@/utils/wallet-utils';
+import { Connection, PublicKey, LAMPORTS_PER_SOL } from '@solana/web3.js';
 
-// Global cache to persist between component unmounts
-type BalanceCache = {
-  wallets: Record<string, { balance: string; timestamp: number }>;
-  mainWallets: Record<string, { balance: string; timestamp: number }>;
-};
-
-// Initialize global cache
-const globalCache: BalanceCache = {
-  wallets: {},
-  mainWallets: {}
+// Define main wallet type to improve type safety
+type MainWallet = {
+  publicKey: string;
+  privateKey: string;
+  balance: string | null;
 };
 
 export function useCachedBalances(
   generatedWallets: WalletInfo[] = [], 
-  developerWallet: { publicKey: string; privateKey: string; balance: string | null } | null = null,
-  funderWallet: { publicKey: string; privateKey: string; balance: string | null } | null = null,
+  developerWallet: MainWallet | null = null,
+  funderWallet: MainWallet | null = null,
   rpcUrl: string | null = null
 ) {
   const [wallets, setWallets] = useState<WalletInfo[]>(generatedWallets);
-  const [devWallet, setDevWallet] = useState(developerWallet);
-  const [fundWallet, setFundWallet] = useState(funderWallet);
+  const [devWallet, setDevWallet] = useState<MainWallet | null>(developerWallet);
+  const [fundWallet, setFundWallet] = useState<MainWallet | null>(funderWallet);
   const [isRefreshing, setIsRefreshing] = useState(false);
 
-  // Apply cached data on initial load
+  // Update internal state when external props change
   useEffect(() => {
-    // Apply cached balances to wallets
-    if (generatedWallets && generatedWallets.length > 0) {
-      const updatedWallets = generatedWallets.map(wallet => {
-        const cached = globalCache.wallets[wallet.publicKey];
-        if (cached) {
-          return { ...wallet, balance: cached.balance };
-        }
-        return wallet;
-      });
-      setWallets(updatedWallets);
-    } else {
-      setWallets(generatedWallets);
-    }
-    
-    // Apply cached developer wallet data
-    if (developerWallet && globalCache.mainWallets[developerWallet.publicKey]) {
-      setDevWallet({
-        ...developerWallet,
-        balance: globalCache.mainWallets[developerWallet.publicKey].balance
-      });
-    } else {
-      setDevWallet(developerWallet);
-    }
-    
-    // Apply cached funder wallet data
-    if (funderWallet && globalCache.mainWallets[funderWallet.publicKey]) {
-      setFundWallet({
-        ...funderWallet,
-        balance: globalCache.mainWallets[funderWallet.publicKey].balance
-      });
-    } else {
-      setFundWallet(funderWallet);
-    }
+    setWallets(generatedWallets);
+    setDevWallet(developerWallet);
+    setFundWallet(funderWallet);
   }, [generatedWallets, developerWallet, funderWallet]);
 
-  // ONLY refresh balances when explicitly called
+  // Direct balance fetch for any wallet
+  const fetchDirectBalance = async (publicKey: string, rpcUrl: string): Promise<string> => {
+    try {
+      const connection = new Connection(rpcUrl, 'confirmed');
+      const pubKey = new PublicKey(publicKey);
+      const balance = await connection.getBalance(pubKey);
+      return (balance / LAMPORTS_PER_SOL).toFixed(9);
+    } catch (error) {
+      console.error(`Error fetching balance for ${publicKey}:`, error);
+      throw error;
+    }
+  };
+
+  // Refresh all wallets
   const refreshBalances = useCallback(async () => {
     if (!rpcUrl) return;
     
+    console.log("Starting wallet balance refresh...");
     setIsRefreshing(true);
+    
+    // Mark all wallets as loading
+    setWallets(prev => prev.map(w => ({...w, balance: null})));
+    if (devWallet) setDevWallet({...devWallet, balance: null});
+    if (fundWallet) setFundWallet({...fundWallet, balance: null});
     
     try {
       // Refresh generated wallets
       if (generatedWallets.length > 0) {
-        const updatedWallets = await refreshWalletBalances(generatedWallets, rpcUrl);
-        
-        // Update cache
-        updatedWallets.forEach(wallet => {
-          if (wallet.balance) {
-            globalCache.wallets[wallet.publicKey] = {
-              balance: wallet.balance,
-              timestamp: Date.now()
-            };
-          }
-        });
-        
-        setWallets(updatedWallets);
+        console.log(`Refreshing ${generatedWallets.length} generated wallets...`);
+        const refreshedWallets = await refreshWalletBalances(generatedWallets, rpcUrl);
+        setWallets(refreshedWallets);
       }
       
       // Refresh developer wallet
-      if (developerWallet) {
-        const devWalletInfo = { 
-          publicKey: developerWallet.publicKey, 
-          privateKey: developerWallet.privateKey,
-          balance: null
-        };
-        
-        const [updatedDeveloper] = await refreshWalletBalances([devWalletInfo], rpcUrl);
-        
-        if (updatedDeveloper.balance) {
-          globalCache.mainWallets[developerWallet.publicKey] = {
-            balance: updatedDeveloper.balance,
-            timestamp: Date.now()
-          };
-          
-          setDevWallet({
-            ...developerWallet,
-            balance: updatedDeveloper.balance
-          });
+      if (developerWallet?.publicKey) {
+        console.log(`Refreshing developer wallet: ${developerWallet.publicKey.substring(0, 8)}...`);
+        try {
+          const balance = await fetchDirectBalance(developerWallet.publicKey, rpcUrl);
+          console.log(`Developer wallet balance: ${balance} SOL`);
+          setDevWallet({...developerWallet, balance});
+        } catch (error) {
+          console.error("Failed to refresh developer wallet:", error);
+          // Restore the previous wallet but with null balance
+          setDevWallet(developerWallet);
         }
       }
       
       // Refresh funder wallet
-      if (funderWallet) {
-        const funderWalletInfo = { 
-          publicKey: funderWallet.publicKey, 
-          privateKey: funderWallet.privateKey,
-          balance: null
-        };
-        
-        const [updatedFunder] = await refreshWalletBalances([funderWalletInfo], rpcUrl);
-        
-        if (updatedFunder.balance) {
-          globalCache.mainWallets[funderWallet.publicKey] = {
-            balance: updatedFunder.balance,
-            timestamp: Date.now()
-          };
-          
-          setFundWallet({
-            ...funderWallet,
-            balance: updatedFunder.balance
-          });
+      if (funderWallet?.publicKey) {
+        console.log(`Refreshing funder wallet: ${funderWallet.publicKey.substring(0, 8)}...`);
+        try {
+          const balance = await fetchDirectBalance(funderWallet.publicKey, rpcUrl);
+          console.log(`Funder wallet balance: ${balance} SOL`);
+          setFundWallet({...funderWallet, balance});
+        } catch (error) {
+          console.error("Failed to refresh funder wallet:", error);
+          // Restore the previous wallet but with null balance
+          setFundWallet(funderWallet);
         }
       }
     } catch (error) {
-      console.error("Error refreshing balances:", error);
+      console.error("Failed to refresh balances:", error);
     } finally {
       setIsRefreshing(false);
+      console.log("Wallet refresh complete");
     }
   }, [rpcUrl, generatedWallets, developerWallet, funderWallet]);
 

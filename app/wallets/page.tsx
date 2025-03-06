@@ -92,81 +92,111 @@ export default function WalletsPage() {
   const [funderWallet, setFunderWallet] = useState<MainWallet | null>(null)
   
   // Use cached balances hook
-const { 
-  wallets: cachedWallets, 
-  developerWallet: cachedDevWallet, 
-  funderWallet: cachedFundWallet, 
-  isRefreshing, 
-  refreshBalances 
-} = useCachedBalances(
-  generatedWallets,
-  developerWallet,
-  funderWallet,
-  settings.rpcUrl || null
-);
-// Processing states
+  const { 
+    wallets: cachedWallets, 
+    developerWallet: cachedDevWallet, 
+    funderWallet: cachedFundWallet, 
+    isRefreshing, 
+    refreshBalances 
+  } = useCachedBalances(
+    generatedWallets,
+    developerWallet,
+    funderWallet,
+    settings.rpcUrl || null
+  );
+  
+  // Processing states
   const [isDistributing, setIsDistributing] = useState(false)
   const [isUpgrading, setIsUpgrading] = useState(false)
   const [isReturning, setIsReturning] = useState(false)
   const [isLoading, setIsLoading] = useState(true)
   
-  // Load wallets from Supabase on initial render
-useEffect(() => {
-  async function loadSavedWallets() {
+  // Function to save all balances to Supabase
+  const saveAllBalancesToSupabase = useCallback(async () => {
     if (!user) return;
     
-    setIsLoading(true);
     try {
-      // 1. Load generated wallets from Supabase
-      const wallets = await loadWalletsFromSupabase(user.id, supabase);
-      
-      if (wallets && wallets.length > 0) {
-        setGeneratedWallets(wallets);
+      // Save generated wallets
+      if (cachedWallets.length > 0) {
+        await saveWalletsToSupabase(user.id, cachedWallets, supabase);
       }
       
-      // 2. Load main wallets (developer and funder) from Supabase
-      const mainWallets = await loadMainWalletsFromSupabase(user.id, supabase);
-      
-      if (mainWallets.developer) {
-        setDeveloperWallet(mainWallets.developer);
+      // Save developer wallet
+      if (cachedDevWallet) {
+        await saveMainWalletToSupabase(user.id, 'developer', cachedDevWallet, supabase);
       }
       
-      if (mainWallets.funder) {
-        setFunderWallet(mainWallets.funder);
-      }
-      
-      // If no wallets were loaded from Supabase, try loading from localStorage as a fallback
-      if (!mainWallets.developer && !mainWallets.funder) {
-        const savedMainWallets = localStorage.getItem('mortality-main-wallets');
-        if (savedMainWallets) {
-          try {
-            const mainWalletData = JSON.parse(savedMainWallets);
-            if (mainWalletData.developer) setDeveloperWallet(mainWalletData.developer);
-            if (mainWalletData.funder) setFunderWallet(mainWalletData.funder);
-          } catch (error) {
-            console.error("Error parsing saved main wallets:", error);
-          }
-        }
+      // Save funder wallet
+      if (cachedFundWallet) {
+        await saveMainWalletToSupabase(user.id, 'funder', cachedFundWallet, supabase);
       }
     } catch (error) {
-      console.error("Error loading saved wallets:", error);
-      toast({
-        title: "Error",
-        description: "Failed to load your saved wallets",
-        variant: "destructive"
-      });
-    } finally {
-      setIsLoading(false);
+      console.error('Failed to save balances to Supabase:', error);
     }
-  }
+  }, [user, cachedWallets, cachedDevWallet, cachedFundWallet]);
+
+  // Handle refresh balances with Supabase update
+  const handleRefreshBalances = async () => {
+    // First refresh balances
+    await refreshBalances();
+    
+    // Then save the updated balances to Supabase
+    await saveAllBalancesToSupabase();
+  };
   
-  loadSavedWallets().then(() => {
-    // Only refresh balances on initial load, not on tab switching
-    if (settings.rpcUrl) {
-      refreshBalances();
+  // Load wallets from Supabase on initial render without refreshing balances
+  useEffect(() => {
+    async function loadSavedWallets() {
+      if (!user) return;
+      
+      setIsLoading(true);
+      try {
+        // 1. Load generated wallets from Supabase
+        const wallets = await loadWalletsFromSupabase(user.id, supabase);
+        
+        if (wallets && wallets.length > 0) {
+          setGeneratedWallets(wallets);
+        }
+        
+        // 2. Load main wallets (developer and funder) from Supabase
+        const mainWallets = await loadMainWalletsFromSupabase(user.id, supabase);
+        
+        if (mainWallets.developer) {
+          setDeveloperWallet(mainWallets.developer);
+        }
+        
+        if (mainWallets.funder) {
+          setFunderWallet(mainWallets.funder);
+        }
+        
+        // If no wallets were loaded from Supabase, try loading from localStorage as a fallback
+        if (!mainWallets.developer && !mainWallets.funder) {
+          const savedMainWallets = localStorage.getItem('mortality-main-wallets');
+          if (savedMainWallets) {
+            try {
+              const mainWalletData = JSON.parse(savedMainWallets);
+              if (mainWalletData.developer) setDeveloperWallet(mainWalletData.developer);
+              if (mainWalletData.funder) setFunderWallet(mainWalletData.funder);
+            } catch (error) {
+              console.error("Error parsing saved main wallets:", error);
+            }
+          }
+        }
+      } catch (error) {
+        console.error("Error loading saved wallets:", error);
+        toast({
+          title: "Error",
+          description: "Failed to load your saved wallets",
+          variant: "destructive"
+        });
+      } finally {
+        setIsLoading(false);
+      }
     }
-  });
-}, [user, settings.rpcUrl]); // Remove other dependencies that might cause re-runs
+    
+    loadSavedWallets();
+    // NO automatic refresh of balances here
+  }, [user, toast]);
 
   // Update the main wallet state in Supabase whenever they change
   useEffect(() => {
@@ -392,7 +422,7 @@ useEffect(() => {
           });
           
           // Refresh balances
-          refreshBalances();
+          await handleRefreshBalances();
         } else if (data.wallets) {
           // { wallets: [...] } format
           handleImportWallets(new Blob([JSON.stringify(data.wallets)], { type: 'application/json' }) as any);
@@ -412,7 +442,7 @@ useEffect(() => {
           });
           
           // Refresh balances
-          refreshBalances();
+          await handleRefreshBalances();
         }
       } catch (error) {
         console.error("Error parsing wallet file:", error);
@@ -616,6 +646,9 @@ useEffect(() => {
       // Refresh balances after distribution
       await refreshBalances();
       
+      // Save updated balances to Supabase
+      await saveAllBalancesToSupabase();
+      
     } catch (error) {
       console.error("Error distributing funds:", error);
       toast({
@@ -711,6 +744,9 @@ useEffect(() => {
       // Refresh balances after upgrades
       await refreshBalances();
       
+      // Save updated balances to Supabase
+      await saveAllBalancesToSupabase();
+      
     } catch (error) {
       console.error("Error upgrading wallets:", error);
       toast({
@@ -779,6 +815,9 @@ useEffect(() => {
       // Refresh balances after return
       await refreshBalances();
       
+      // Save updated balances to Supabase
+      await saveAllBalancesToSupabase();
+      
     } catch (error) {
       console.error("Error returning funds:", error);
       toast({
@@ -805,7 +844,7 @@ useEffect(() => {
         <div className="text-base animate-in fade-in-50 duration-300">{amount} SOL</div>
       )}
     </div>
-  );
+  );  
 
   // Check if any wallets have large balances (for return funds warning)
   const hasWalletsWithLargeBalances = generatedWallets.some(
@@ -823,7 +862,7 @@ useEffect(() => {
               <Button
                 variant="outline"
                 className="transition-transform duration-200 hover:scale-105 hover:shadow-lg flex items-center gap-2"
-                onClick={refreshBalances}
+                onClick={handleRefreshBalances}
                 disabled={isRefreshing}
               >
                 <RefreshCw size={16} className={isRefreshing ? "animate-spin" : ""} />
@@ -866,7 +905,7 @@ useEffect(() => {
             </div>
           </div>
         </div>
-
+  
         {/* Main Wallets Section */}
         <div className="grid md:grid-cols-2 gap-6">
           {/* DEVELOPER WALLET */}
@@ -906,7 +945,7 @@ useEffect(() => {
                     size="sm"
                     className="transition-transform duration-200 hover:scale-105 hover:shadow-lg flex items-center gap-2"
                     onClick={() => handleExportWallet("developer")}
-                    disabled={!developerWallet || !isPremium}
+                    disabled={!cachedDevWallet || !isPremium}
                   >
                     <Export size={16} />
                     Export
@@ -918,14 +957,14 @@ useEffect(() => {
                   <label className="text-sm font-medium">Public Key</label>
                   <div className="flex items-center gap-1">
                     <div className="font-mono text-base truncate">
-                      {developerWallet ? developerWallet.publicKey : "No wallet imported"}
+                      {cachedDevWallet ? cachedDevWallet.publicKey : "No wallet imported"}
                     </div>
-                    {developerWallet && (
+                    {cachedDevWallet && (
                       <Button
                         variant="ghost"
                         size="icon"
                         className="h-6 w-6 shrink-0"
-                        onClick={() => handleCopy(developerWallet.publicKey, "developer")}
+                        onClick={() => handleCopy(cachedDevWallet.publicKey, "developer")}
                       >
                         {copySuccess === "developer" ? <Check size={12} className="text-green-500" /> : <Copy size={12} />}
                       </Button>
@@ -934,8 +973,8 @@ useEffect(() => {
                 </div>
                 <div>
                   <label className="text-sm font-medium">Balance</label>
-                  {developerWallet ? (
-                    <BalanceDisplay amount={developerWallet.balance} />
+                  {cachedDevWallet ? (
+                    <BalanceDisplay amount={cachedDevWallet.balance} />
                   ) : (
                     <div className="text-muted-foreground">Import a wallet to view balance</div>
                   )}
@@ -943,7 +982,7 @@ useEffect(() => {
               </div>
             </div>
           </Card>
-
+  
           {/* FUNDER WALLET */}
           <Card className="border-2">
             <div className="p-6 space-y-4">
@@ -981,7 +1020,7 @@ useEffect(() => {
                     size="sm"
                     className="transition-transform duration-200 hover:scale-105 hover:shadow-lg flex items-center gap-2"
                     onClick={() => handleExportWallet("funder")}
-                    disabled={!funderWallet || !isPremium}
+                    disabled={!cachedFundWallet || !isPremium}
                   >
                     <Export size={16} />
                     Export
@@ -993,14 +1032,14 @@ useEffect(() => {
                   <label className="text-sm font-medium">Public Key</label>
                   <div className="flex items-center gap-1">
                     <div className="font-mono text-base truncate">
-                      {funderWallet ? funderWallet.publicKey : "No wallet imported"}
+                      {cachedFundWallet ? cachedFundWallet.publicKey : "No wallet imported"}
                     </div>
-                    {funderWallet && (
+                    {cachedFundWallet && (
                       <Button
                         variant="ghost"
                         size="icon"
                         className="h-6 w-6 shrink-0"
-                        onClick={() => handleCopy(funderWallet.publicKey, "funder")}
+                        onClick={() => handleCopy(cachedFundWallet.publicKey, "funder")}
                       >
                         {copySuccess === "funder" ? <Check size={12} className="text-green-500" /> : <Copy size={12} />}
                       </Button>
@@ -1009,8 +1048,8 @@ useEffect(() => {
                 </div>
                 <div>
                   <label className="text-sm font-medium">Balance</label>
-                  {funderWallet ? (
-                    <BalanceDisplay amount={funderWallet.balance} />
+                  {cachedFundWallet ? (
+                    <BalanceDisplay amount={cachedFundWallet.balance} />
                   ) : (
                     <div className="text-muted-foreground">Import a wallet to view balance</div>
                   )}
@@ -1019,13 +1058,13 @@ useEffect(() => {
             </div>
           </Card>
         </div>
-
+  
         {/* Action Buttons */}
         <div className="flex justify-center gap-4">
           <Button 
             className="bg-black text-white transition-transform duration-200 hover:scale-105 hover:shadow-lg hover:bg-black flex items-center gap-2"
             onClick={() => setShowDistributeDialog(true)}
-            disabled={!funderWallet || generatedWallets.length === 0 || isDistributing}
+            disabled={!cachedFundWallet || cachedWallets.length === 0 || isDistributing}
           >
             {isDistributing ? (
               <>
@@ -1042,7 +1081,7 @@ useEffect(() => {
           <Button 
             className="bg-black text-white transition-transform duration-200 hover:scale-105 hover:shadow-lg hover:bg-black flex items-center gap-2"
             onClick={() => setShowUpgradeDialog(true)}
-            disabled={!funderWallet || walletsWithBalance === 0 || isUpgrading}
+            disabled={!cachedFundWallet || walletsWithBalance === 0 || isUpgrading}
           >
             {isUpgrading ? (
               <>
@@ -1059,7 +1098,7 @@ useEffect(() => {
           <Button 
             className="bg-black text-white transition-transform duration-200 hover:scale-105 hover:shadow-lg hover:bg-black flex items-center gap-2"
             onClick={() => setShowReturnDialog(true)}
-            disabled={!funderWallet || generatedWallets.length === 0 || isReturning}
+            disabled={!cachedFundWallet || cachedWallets.length === 0 || isReturning}
           >
             {isReturning ? (
               <>
@@ -1074,122 +1113,122 @@ useEffect(() => {
             )}
           </Button>
         </div>
-
+  
         {/* Generated Wallets Section */}
         <div className="space-y-4">
-          <h2 className="text-xl font-semibold">GENERATED WALLETS ({generatedWallets.length}/100)</h2>
+          <h2 className="text-xl font-semibold">GENERATED WALLETS ({cachedWallets.length}/100)</h2>
           {isLoading ? (
             <div className="flex justify-center items-center p-12">
               <Loader2 className="h-8 w-8 animate-spin" />
             </div>
           ) : (
             <div className="grid gap-4">
-              {generatedWallets.length === 0 ? (
-  <div className="text-center p-6 text-muted-foreground">
-    No wallets generated yet. Click "GENERATE" to create new wallets.
-  </div>
-) : (
-  generatedWallets.map((wallet, index) => (
-    <Card key={`wallet-${wallet.publicKey}-${index}`} className="p-4">
-      <div className="flex items-center gap-4">
-        <Button
-          variant="ghost"
-          size="icon"
-          className="text-muted-foreground hover:text-foreground transition-transform duration-200 hover:scale-105"
-          onClick={() => handleDeleteWallet(index)}
-        >
-          <Trash2 size={20} />
-        </Button>
-        <div className="flex items-center gap-4 flex-1">
-          <span className="font-semibold">#{index + 1}</span>
-          <div className="grid sm:grid-cols-[minmax(120px,auto)_1fr] gap-3 sm:gap-6 w-full">
-            <div>
-              <label className="text-sm font-medium">Balance</label>
-              <BalanceDisplay amount={wallet.balance} />
-              
-              {/* Platform indicator badge */}
-              {wallet.platform && wallet.platform !== "NONE" && (
-                <div className="mt-1">
-                  <span className="inline-flex items-center rounded-md bg-blue-50 dark:bg-blue-900 px-2 py-1 text-xs font-medium text-blue-700 dark:text-blue-300 ring-1 ring-inset ring-blue-700/10 dark:ring-blue-300/20">
-                    {wallet.platform}
-                  </span>
+              {cachedWallets.length === 0 ? (
+                <div className="text-center p-6 text-muted-foreground">
+                  No wallets generated yet. Click "GENERATE" to create new wallets.
                 </div>
+              ) : (
+                cachedWallets.map((wallet, index) => (
+                  <Card key={`wallet-${wallet.publicKey}-${index}`} className="p-4">
+                    <div className="flex items-center gap-4">
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        className="text-muted-foreground hover:text-foreground transition-transform duration-200 hover:scale-105"
+                        onClick={() => handleDeleteWallet(index)}
+                      >
+                        <Trash2 size={20} />
+                      </Button>
+                      <div className="flex items-center gap-4 flex-1">
+                        <span className="font-semibold">#{index + 1}</span>
+                        <div className="grid sm:grid-cols-[minmax(120px,auto)_1fr] gap-3 sm:gap-6 w-full">
+                          <div>
+                            <label className="text-sm font-medium">Balance</label>
+                            <BalanceDisplay amount={wallet.balance} />
+                            
+                            {/* Platform indicator badge */}
+                            {wallet.platform && wallet.platform !== "NONE" && (
+                              <div className="mt-1">
+                                <span className="inline-flex items-center rounded-md bg-blue-50 dark:bg-blue-900 px-2 py-1 text-xs font-medium text-blue-700 dark:text-blue-300 ring-1 ring-inset ring-blue-700/10 dark:ring-blue-300/20">
+                                  {wallet.platform}
+                                </span>
+                              </div>
+                            )}
+                          </div>
+                          <div className="space-y-2">
+                            <div>
+                              <label className="text-sm font-medium">Public Key</label>
+                              <div className="flex items-center gap-1">
+                                <div className="font-mono text-base truncate">{wallet.publicKey}</div>
+                                <Button
+                                  variant="ghost"
+                                  size="icon"
+                                  className="h-6 w-6 shrink-0"
+                                  onClick={() => handleCopy(wallet.publicKey, `generated-${index}`)}
+                                >
+                                  {copySuccess === `generated-${index}` ? (
+                                    <Check size={12} className="text-green-500" />
+                                  ) : (
+                                    <Copy size={12} />
+                                  )}
+                                </Button>
+                              </div>
+                            </div>
+                            <div>
+                              <label className="text-sm font-medium">Private Key</label>
+                              <div className="flex items-center gap-1">
+                                <div className="font-mono text-base truncate">
+                                  {isPremium ? wallet.privateKey : maskPrivateKey(wallet.privateKey)}
+                                </div>
+                                <Button
+                                  variant="ghost"
+                                  size="icon"
+                                  className="h-6 w-6 shrink-0"
+                                  onClick={() => handleCopy(wallet.privateKey, `generated-${index}-private`)}
+                                  disabled={!isPremium}
+                                >
+                                  {copySuccess === `generated-${index}-private` ? (
+                                    <Check size={12} className="text-green-500" />
+                                  ) : isPremium ? (
+                                    <Copy size={12} />
+                                  ) : (
+                                    <Lock size={12} />
+                                  )}
+                                </Button>
+                              </div>
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  </Card>
+                ))
               )}
-            </div>
-            <div className="space-y-2">
-              <div>
-                <label className="text-sm font-medium">Public Key</label>
-                <div className="flex items-center gap-1">
-                  <div className="font-mono text-base truncate">{wallet.publicKey}</div>
-                  <Button
-                    variant="ghost"
-                    size="icon"
-                    className="h-6 w-6 shrink-0"
-                    onClick={() => handleCopy(wallet.publicKey, `generated-${index}`)}
-                  >
-                    {copySuccess === `generated-${index}` ? (
-                      <Check size={12} className="text-green-500" />
-                    ) : (
-                      <Copy size={12} />
-                    )}
-                  </Button>
-                </div>
-              </div>
-              <div>
-                <label className="text-sm font-medium">Private Key</label>
-                <div className="flex items-center gap-1">
-                  <div className="font-mono text-base truncate">
-                    {isPremium ? wallet.privateKey : maskPrivateKey(wallet.privateKey)}
-                  </div>
-                  <Button
-                    variant="ghost"
-                    size="icon"
-                    className="h-6 w-6 shrink-0"
-                    onClick={() => handleCopy(wallet.privateKey, `generated-${index}-private`)}
-                    disabled={!isPremium}
-                  >
-                    {copySuccess === `generated-${index}-private` ? (
-                      <Check size={12} className="text-green-500" />
-                    ) : isPremium ? (
-                      <Copy size={12} />
-                    ) : (
-                      <Lock size={12} />
-                    )}
-                  </Button>
-                </div>
-              </div>
-            </div>
-          </div>
-        </div>
-      </div>
-    </Card>
-  ))
-)}
             </div>
           )}
         </div>
-
+  
         {/* Dialogs */}
         <GenerateWalletsDialog
           open={showGenerateDialog}
           onOpenChange={setShowGenerateDialog}
           onGenerate={handleGenerateWallets}
         />
-
+  
         <ImportWalletsDialog
           open={showImportDialog}
           onOpenChange={setShowImportDialog}
           onImport={handleImportWallets}
           isPremium={isPremium}
         />
-
+  
         <ImportPrivateKeyDialog
           open={showImportPrivateKeyDialog}
           onOpenChange={setShowImportPrivateKeyDialog}
           onImport={handleImportPrivateKey}
           walletType={importingWalletType || "developer"}
         />
-
+  
         <ClearWalletsDialog
           open={showClearWalletsDialog}
           onOpenChange={setShowClearWalletsDialog}
@@ -1201,9 +1240,9 @@ useEffect(() => {
           open={showDistributeDialog}
           onOpenChange={setShowDistributeDialog}
           onDistribute={handleDistributeFunds}
-          maxWallets={generatedWallets.length}
+          maxWallets={cachedWallets.length}
           minAmount={0.0001}
-          maxAmount={funderWallet ? parseFloat(funderWallet.balance || "0") : 1}
+          maxAmount={cachedFundWallet ? parseFloat(cachedFundWallet.balance || "0") : 1}
           isPremium={isPremium}
         />
         
@@ -1211,16 +1250,16 @@ useEffect(() => {
           open={showUpgradeDialog}
           onOpenChange={setShowUpgradeDialog}
           onUpgrade={handleUpgradeWallets}
-          maxWallets={generatedWallets.length}
+          maxWallets={cachedWallets.length}
           isPremium={isPremium}
-          wallets={generatedWallets}
+          wallets={cachedWallets}
         />
         
         <ReturnFundsDialog
           open={showReturnDialog}
           onOpenChange={setShowReturnDialog}
           onReturn={handleReturnFunds}
-          maxWallets={generatedWallets.length}
+          maxWallets={cachedWallets.length}
           hasTooBigBalances={hasWalletsWithLargeBalances}
           isPremium={isPremium}
         />
