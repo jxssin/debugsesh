@@ -1,6 +1,6 @@
-"use client"
+"use client";
 
-import { useState, useEffect, useCallback, useRef } from "react"
+import { useState, useEffect, useCallback, useRef } from "react";
 import {
   RefreshCw,
   Plus,
@@ -16,35 +16,30 @@ import {
   Check,
   Loader2,
   Lock,
-} from "lucide-react"
-import { Button } from "@/components/ui/button"
-import { Card } from "@/components/ui/card"
-import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip"
-import { useSettings } from "@/contexts/settings-context"
-import { useUser } from "@/contexts/user-context"
-import { useAuth } from "@/contexts/auth-context"
-import { supabase } from "@/lib/supabase"
-import bs58 from 'bs58'
-import { Connection, PublicKey, LAMPORTS_PER_SOL } from '@solana/web3.js'
+} from "lucide-react";
+import { Button } from "@/components/ui/button";
+import { Card } from "@/components/ui/card";
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
+import { useSettings } from "@/contexts/settings-context";
+import { useUser } from "@/contexts/user-context";
+import { useAuth } from "@/contexts/auth-context";
+import { supabase } from "@/lib/supabase";
+import bs58 from 'bs58';
+import { Connection, PublicKey, LAMPORTS_PER_SOL } from '@solana/web3.js';
 
 // Components
-import { GenerateWalletsDialog } from "@/components/dialogs/generate-wallets-dialog"
-import { ImportWalletsDialog } from "@/components/dialogs/import-wallets-dialog"
-import { ImportPrivateKeyDialog } from "@/components/dialogs/import-private-key-dialog"
-import { ClearWalletsDialog } from "@/components/dialogs/clear-wallets-dialog"
-import { DistributeFundsDialog, DistributeOptions } from "@/components/dialogs/distribute-funds-dialog"
-import { UpgradeWalletsDialog, UpgradeOptions } from "@/components/dialogs/upgrade-wallets-dialog"
-import { ReturnFundsDialog, ReturnOptions } from "@/components/dialogs/return-funds-dialog"
-import ProtectedRoute from "@/components/protected-route"
+import { GenerateWalletsDialog } from "@/components/dialogs/generate-wallets-dialog";
+import { ImportWalletsDialog } from "@/components/dialogs/import-wallets-dialog";
+import { ImportPrivateKeyDialog } from "@/components/dialogs/import-private-key-dialog";
+import { ClearWalletsDialog } from "@/components/dialogs/clear-wallets-dialog";
+import { DistributeFundsDialog, DistributeOptions } from "@/components/dialogs/distribute-funds-dialog";
+import { UpgradeWalletsDialog, UpgradeOptions } from "@/components/dialogs/upgrade-wallets-dialog";
+import { ReturnFundsDialog, ReturnOptions } from "@/components/dialogs/return-funds-dialog";
+import ProtectedRoute from "@/components/protected-route";
 
 // Hooks
-import { useToast } from "@/hooks/use-toast"
-import { useCachedBalances } from "@/hooks/use-cached-balances"
-
-// Wallet state management
-const [isInitialLoading, setIsInitialLoading] = useState(true)
-const [isRefetchingData, setIsRefetchingData] = useState(false)
-const dataLoadedRef = useRef(false)
+import { useToast } from "@/hooks/use-toast";
+import { useCachedBalances } from "@/hooks/use-cached-balances";
 
 // Utils
 import { 
@@ -65,42 +60,47 @@ import {
   PLATFORMS,
   WalletInfo as WalletInfoType,
   parsePrivateKey
-} from "@/utils/wallet-utils"
+} from "@/utils/wallet-utils";
 
 // MainWallet interface
 interface MainWallet {
-  publicKey: string
-  privateKey: string
-  balance: string | null
+  publicKey: string;
+  privateKey: string;
+  balance: string | null;
 }
 
 export default function WalletsPage() {
-  const { toast } = useToast()
-  const { settings } = useSettings()
-  const { isPremium } = useUser()
-  const { user } = useAuth()
-  
+  // Wallet state management
+  const [isInitialLoading, setIsInitialLoading] = useState(true);
+  const [isRefetchingData, setIsRefetchingData] = useState(false);
+  const dataLoadedRef = useRef(false);
+
+  const { toast } = useToast();
+  const { settings } = useSettings();
+  const { isPremium } = useUser();
+  const { user } = useAuth();
+
   // UI state
-  const [showGenerateDialog, setShowGenerateDialog] = useState(false)
-  const [showImportDialog, setShowImportDialog] = useState(false)
-  const [showDistributeDialog, setShowDistributeDialog] = useState(false)
-  const [showUpgradeDialog, setShowUpgradeDialog] = useState(false)
-  const [showReturnDialog, setShowReturnDialog] = useState(false)
-  const [copySuccess, setCopySuccess] = useState<string | null>(null)
-  const [showImportPrivateKeyDialog, setShowImportPrivateKeyDialog] = useState(false)
-  const [showClearWalletsDialog, setShowClearWalletsDialog] = useState(false)
-  const [importingWalletType, setImportingWalletType] = useState<"developer" | "funder" | null>(null)
-  
+  const [showGenerateDialog, setShowGenerateDialog] = useState(false);
+  const [showImportDialog, setShowImportDialog] = useState(false);
+  const [showDistributeDialog, setShowDistributeDialog] = useState(false);
+  const [showUpgradeDialog, setShowUpgradeDialog] = useState(false);
+  const [showReturnDialog, setShowReturnDialog] = useState(false);
+  const [copySuccess, setCopySuccess] = useState<string | null>(null);
+  const [showImportPrivateKeyDialog, setShowImportPrivateKeyDialog] = useState(false);
+  const [showClearWalletsDialog, setShowClearWalletsDialog] = useState(false);
+  const [importingWalletType, setImportingWalletType] = useState<"developer" | "funder" | null>(null);
+
   // Wallet data state
-  const [generatedWallets, setGeneratedWallets] = useState<WalletInfoType[]>([])
-  const [developerWallet, setDeveloperWallet] = useState<MainWallet | null>(null)
-  const [funderWallet, setFunderWallet] = useState<MainWallet | null>(null)
-  
+  const [generatedWallets, setGeneratedWallets] = useState<WalletInfoType[]>([]);
+  const [developerWallet, setDeveloperWallet] = useState<MainWallet | null>(null);
+  const [funderWallet, setFunderWallet] = useState<MainWallet | null>(null);
+
   // Processing states
-  const [isDistributing, setIsDistributing] = useState(false)
-  const [isUpgrading, setIsUpgrading] = useState(false)
-  const [isReturning, setIsReturning] = useState(false)
-  const [isLoading, setIsLoading] = useState(true)
+  const [isDistributing, setIsDistributing] = useState(false);
+  const [isUpgrading, setIsUpgrading] = useState(false);
+  const [isReturning, setIsReturning] = useState(false);
+  const [isLoading, setIsLoading] = useState(true);
   
   // Use cached balances hook
   const { 
