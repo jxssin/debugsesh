@@ -26,12 +26,15 @@ export function ClearWalletsDialog({ open, onOpenChange, onConfirm, isPremium }:
           <DialogDescription className="space-y-2">
             <p className="text-base">
               {isPremium
-                ? "If there are any SPL tokens or SOL left in the generated wallet(s), it will be returned to your funder wallet."
-                : "If there's any SOL left in the generated wallet(s), it will be returned to your funder wallet."}
+                ? "If there are any SPL tokens or SOL left in the generated wallet(s), we'll attempt to return them to your funder wallet."
+                : "If there's any SOL left in the generated wallet(s), we'll attempt to return it to your funder wallet."}
+            </p>
+            <p className="text-xs text-muted-foreground">
+              Note: Your wallets will be removed from the interface regardless of whether funds can be returned.
             </p>
             {isPremium && (
               <p className="text-xs text-muted-foreground">
-                Note: All your token accounts will be closed and the SOL will be sent to your funder wallet.
+                Premium feature: We'll try to close token accounts and return the SOL to your funder wallet.
               </p>
             )}
           </DialogDescription>

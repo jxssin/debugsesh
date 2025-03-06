@@ -40,7 +40,7 @@ export function DistributeFundsDialog({
   onOpenChange, 
   onDistribute,
   maxWallets,
-  minAmount = 0.0001, // Changed from 0.001 to 0.0001
+  minAmount = 0.0001, // Minimum amount is 0.0001 SOL
   maxAmount = 1,
   isPremium
 }: DistributeFundsDialogProps) {
@@ -90,15 +90,27 @@ export function DistributeFundsDialog({
   
   // Handle manual input for amount with validation
   const handleAmountChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    let value = parseFloat(e.target.value);
-    if (isNaN(value)) {
+    const input = e.target.value;
+    
+    // Allow empty string for better UX while typing
+    if (input === '') {
       setAmount(0);
       return;
     }
     
+    const value = parseFloat(input);
+    if (isNaN(value)) {
+      return;
+    }
+    
     // Ensure value is within bounds
-    value = Math.max(minAmount, Math.min(value, maxAmount));
-    setAmount(value);
+    if (value < minAmount) {
+      setAmount(minAmount);
+    } else if (value > maxAmount) {
+      setAmount(maxAmount);
+    } else {
+      setAmount(value);
+    }
   };
   
   return (
@@ -173,13 +185,18 @@ export function DistributeFundsDialog({
                 <Label htmlFor="fixed-amount">Amount per Wallet (SOL)</Label>
                 <Input
                   id="fixed-amount"
-                  type="number"
-                  value={amount}
+                  type="text"
+                  inputMode="decimal"
+                  value={amount === 0 ? '' : amount}
                   onChange={handleAmountChange}
                   min={minAmount}
                   max={maxAmount}
                   step={0.0001}
+                  className="no-spinner"
                 />
+                {amount < minAmount && (
+                  <p className="text-xs text-red-500">Minimum amount is {minAmount} SOL</p>
+                )}
               </div>
             </>
           )}
@@ -253,12 +270,28 @@ export function DistributeFundsDialog({
           </Button>
           <Button 
             onClick={handleDistribute}
-            disabled={(!selectAll && selectedWallets.length === 0) || amount <= 0}
+            disabled={
+              (!selectAll && selectedWallets.length === 0) || 
+              amount < minAmount || 
+              (isRandom && (randomMinAmount < minAmount || randomMaxAmount <= randomMinAmount))
+            }
           >
             Distribute
           </Button>
         </DialogFooter>
       </DialogContent>
+      
+      {/* Add CSS to remove spinner buttons from input */}
+      <style jsx global>{`
+        .no-spinner::-webkit-inner-spin-button,
+        .no-spinner::-webkit-outer-spin-button {
+          -webkit-appearance: none;
+          margin: 0;
+        }
+        .no-spinner {
+          -moz-appearance: textfield;
+        }
+      `}</style>
     </Dialog>
   )
 }

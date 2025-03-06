@@ -1,3 +1,13 @@
+// First, extend the Window interface to include our custom properties
+declare global {
+  interface Window {
+    jitoApiCallCounter?: number;
+    jitoTxCallCounter?: number;
+  }
+}
+
+// Modified wallet-utils.ts with fixes for transaction handling and Jito integration
+
 import { Keypair, PublicKey, Connection, Transaction, SystemProgram, LAMPORTS_PER_SOL, sendAndConfirmTransaction } from '@solana/web3.js';
 import bs58 from 'bs58';
 import axios from 'axios';
@@ -381,12 +391,33 @@ export function isSameWallet(wallet1: string | null | undefined, wallet2: string
 /**
  * Get the optimal Jito tip amount based on current network conditions
  */
+// Track the last time we called the tip API
+let lastJitoTipApiTime = 0;
+// Cache the tip amount to avoid multiple calls
+let cachedTipAmount: number | null = null;
+let cachedTipExpiry = 0;
+
 async function getOptimalJitoTip(maxTipAmount?: number): Promise<number> {
   try {
-    // Use a fallback value if endpoint access fails due to CORS
-    // Default to 0.0001 SOL (100,000 lamports)
+    // Default values
     const defaultTip = 0.0001 * LAMPORTS_PER_SOL;
     const userMaxTip = maxTipAmount ? maxTipAmount * LAMPORTS_PER_SOL : 0.0005 * LAMPORTS_PER_SOL;
+    
+    // Use cached tip if available and not expired (cache for 5 minutes)
+    const now = Date.now();
+    if (cachedTipAmount !== null && now < cachedTipExpiry) {
+      return Math.min(cachedTipAmount, userMaxTip);
+    }
+    
+    // Rate limit handling - ensure 1 second between API calls
+    const timeSinceLastCall = now - lastJitoTipApiTime;
+    if (timeSinceLastCall < 1000) {
+      const waitTime = 1000 - timeSinceLastCall;
+      await new Promise(resolve => setTimeout(resolve, waitTime));
+    }
+    
+    // Update the last call time
+    lastJitoTipApiTime = Date.now();
     
     try {
       const response = await axios.get('https://bundles.jito.wtf/api/v1/bundles/tip_floor');
@@ -402,6 +433,10 @@ async function getOptimalJitoTip(maxTipAmount?: number): Promise<number> {
         const finalTip = Math.min(tipWithExtra, userMaxTip);
         
         console.log(`Jito tip: 75th percentile (${tipBase / LAMPORTS_PER_SOL} SOL) + 50% = ${finalTip / LAMPORTS_PER_SOL} SOL`);
+        
+        // Cache the result for 5 minutes
+        cachedTipAmount = finalTip;
+        cachedTipExpiry = now + 5 * 60 * 1000;
         
         return finalTip;
       }
@@ -423,11 +458,14 @@ function getRandomJitoTipAccount(): PublicKey {
   return new PublicKey(JITO_TIP_ACCOUNTS[randomIndex]);
 }
 
+// Track the last time we sent a request to Jito
+let lastJitoRequestTime = 0;
+
 async function sendTransactionViaJito(
   transaction: Transaction,
   signers: Keypair[],
   connection: Connection,
-  jitoRpcUrl: string = JITO_RPC_URL // Add the parameter with default value
+  jitoRpcUrl: string = JITO_RPC_URL
 ): Promise<string> {
   const block = await connection.getLatestBlockhash("confirmed");
   transaction.recentBlockhash = block.blockhash;
@@ -446,25 +484,42 @@ async function sendTransactionViaJito(
     params: [encodedTx],
   };
   
-  // Use the passed jitoRpcUrl instead of hardcoded value
-  const jitoResponse = await axios.post(
-    `${jitoRpcUrl}/api/v1/transactions`,
-    payload,
-    {
-      headers: { "Content-Type": "application/json" },
-    }
-  );
+  // Rate limit handling - ensure 1 second between requests
+  const now = Date.now();
+  const timeSinceLastRequest = now - lastJitoRequestTime;
   
-  const signature = jitoResponse.data.result;
-  console.log(`Transaction sent via Jito: https://solscan.io/tx/${signature}`);
+  if (timeSinceLastRequest < 1000) {
+    // Wait until we can send the next request
+    const waitTime = 1000 - timeSinceLastRequest;
+    await new Promise(resolve => setTimeout(resolve, waitTime));
+  }
   
-  await connection.confirmTransaction({
-    signature,
-    blockhash: block.blockhash,
-    lastValidBlockHeight: block.lastValidBlockHeight
-  }, "finalized");
+  // Update the last request time
+  lastJitoRequestTime = Date.now();
   
-  return signature;
+  try {
+    const jitoResponse = await axios.post(
+      `${jitoRpcUrl}/api/v1/transactions`,
+      payload,
+      {
+        headers: { "Content-Type": "application/json" },
+      }
+    );
+    
+    const signature = jitoResponse.data.result;
+    console.log(`Transaction sent via Jito: https://solscan.io/tx/${signature}`);
+    
+    await connection.confirmTransaction({
+      signature,
+      blockhash: block.blockhash,
+      lastValidBlockHeight: block.lastValidBlockHeight
+    }, "finalized");
+    
+    return signature;
+  } catch (error: any) {
+    console.error("Error sending transaction via Jito:", error);
+    throw new Error(`Failed to send via Jito: ${error.message || "Unknown error"}`);
+  }
 }
 
 /**
@@ -592,22 +647,40 @@ export async function convertToSmartWallet(
     let signature: string;
     
     try {
-      if (useJito) {
-        signature = await sendTransactionViaJito(transaction, [funderKeypair], connection);
-      } else {
+      // First try standard transaction for first 3 attempts
+      if (!useJito && retryCount < 3) {
+        console.log(`Attempting to convert wallet with standard transaction (attempt ${retryCount + 1}/3)...`);
+        
+        // Setup transaction
+        const blockHash = await connection.getLatestBlockhash("confirmed");
+        transaction.recentBlockhash = blockHash.blockhash;
+        transaction.lastValidBlockHeight = blockHash.lastValidBlockHeight;
         transaction.feePayer = funderKeypair.publicKey;
+        
+        // Sign and send
         signature = await sendAndConfirmTransaction(connection, transaction, [funderKeypair]);
+        console.log(`Standard transaction successful: ${signature}`);
+      }
+      // Fall back to Jito after 3 failed attempts or if useJito is true
+      else {
+        console.log(`Attempting to convert wallet with Jito transaction...`);
+        signature = await sendTransactionViaJito(transaction, [funderKeypair], connection);
+        console.log(`Jito transaction successful: ${signature}`);
       }
     } catch (err: any) {
-      // If regular transaction failed and we haven't tried Jito yet, retry with Jito
+      // If regular transaction failed and we haven't tried too many times, retry with standard method
       if (!useJito && retryCount < 3) {
-        console.log(`Regular transaction failed, retrying with standard method (${retryCount + 1}/3)...`);
+        console.log(`Standard transaction failed, retrying (${retryCount + 1}/3)...`);
+        await new Promise(resolve => setTimeout(resolve, 1000)); // Small delay before retry
         return convertToSmartWallet(walletInfo, platformKey, funderPrivateKey, rpcUrl, false, retryCount + 1);
-      } else if (!useJito && retryCount >= 3) {
+      } 
+      // If we've tried standard method 3 times, switch to Jito
+      else if (!useJito && retryCount >= 3) {
         console.log(`Standard method failed after ${retryCount} retries, trying with Jito...`);
         return convertToSmartWallet(walletInfo, platformKey, funderPrivateKey, rpcUrl, true, 0);
-      } else {
-        // Both methods failed
+      } 
+      // Both methods failed
+      else {
         throw err;
       }
     }
@@ -656,6 +729,7 @@ export async function distributeFunds(
     const batchSize = 5;
     for (let i = 0; i < wallets.length; i += batchSize) {
       const batch = wallets.slice(i, i + batchSize);
+      // Process each wallet in the batch
       const batchPromises = batch.map(async (wallet) => {
         try {
           const transaction = new Transaction();
@@ -693,51 +767,68 @@ export async function distributeFunds(
           // Send and confirm transaction
           let signature: string;
           
-          try {
-            if (useJito) {
-              signature = await sendTransactionViaJito(transaction, [funderKeypair], connection, jitoRpcUrlToUse);
-            } else {
+          // First try standard method for first 3 attempts
+          if (!useJito && retryCount < 3) {
+            try {
+              console.log(`Attempting to distribute funds with standard transaction (attempt ${retryCount + 1}/3)...`);
               signature = await sendAndConfirmTransaction(connection, transaction, [funderKeypair]);
-            }
-          } catch (err: any) {
-            // If regular transaction failed and we haven't tried Jito yet, retry with standard method
-            if (!useJito && retryCount < 3) {
-              console.log(`Regular transaction failed, retrying standard method (${retryCount + 1}/3)...`);
-              await new Promise(resolve => setTimeout(resolve, 1000)); // Small delay before retry
+              console.log(`Standard distribution successful: ${signature}`);
+              return signature;
+            } catch (err) {
+              console.error(`Standard distribution failed (attempt ${retryCount + 1}/3):`, err);
               
-              // Retry the same wallet with standard method
-              const singleRetry = await distributeFunds(
-                funderPrivateKey, 
-                [wallet], 
-                amountPerWallet, 
-                rpcUrl, 
-                { useJito: false }, 
-                retryCount + 1
-              );
-              return singleRetry[0];
-            } else if (!useJito && retryCount >= 3) {
-              console.log(`Standard method failed after ${retryCount} retries, trying with Jito...`);
+              // If we have more retries, retry with standard method
+              if (retryCount < 2) {
+                console.log(`Retrying with standard method...`);
+                await new Promise(resolve => setTimeout(resolve, 1000)); // Small delay before retry
+                const singleRetry = await distributeFunds(
+                  funderPrivateKey, 
+                  [wallet], 
+                  amountPerWallet, 
+                  rpcUrl, 
+                  { useJito: false }, 
+                  retryCount + 1
+                );
+                return singleRetry[0];
+              }
               
-              // Try with Jito as a fallback
-              const singleRetry = await distributeFunds(
-                funderPrivateKey, 
-                [wallet], 
-                amountPerWallet, 
-                rpcUrl, 
+              // If we've exhausted standard retries, try with Jito
+              console.log(`Standard method failed after ${retryCount + 1} attempts, trying with Jito...`);
+              const jitoRetry = await distributeFunds(
+                funderPrivateKey,
+                [wallet],
+                amountPerWallet,
+                rpcUrl,
                 { 
                   useJito: true,
                   jitoRpcUrl: jitoRpcUrlToUse,
                   maxTipAmount: jitoSettings?.maxTipAmount
-                }, 
+                },
                 0
               );
-              return singleRetry[0];
-            } else {
-              // Both methods failed
-              throw err;
+              return jitoRetry[0];
+            }
+          } 
+          // If useJito is true or we've exhausted standard retries
+          else {
+            try {
+              console.log(`Attempting to distribute funds with Jito transaction...`);
+              signature = await sendTransactionViaJito(
+                transaction, 
+                [funderKeypair], 
+                connection, 
+                jitoRpcUrlToUse
+              );
+              console.log(`Jito distribution successful: ${signature}`);
+              return signature;
+            } catch (jitoErr) {
+              console.error("Failed to distribute funds using Jito:", jitoErr);
+              return null;
             }
           }
           
+          // This code is unreachable due to the return statements in both branches above
+          // Keeping it for code clarity in case the logic changes
           console.log(`Sent ${amountPerWallet} SOL to ${wallet.publicKey}`);
           console.log(`Transaction: https://solscan.io/tx/${signature}`);
           
@@ -769,12 +860,14 @@ export async function distributeFunds(
  * @param generatedWallets Array of generated wallets
  * @param funderPublicKey Public key of the funder wallet to return funds to
  * @param rpcUrl RPC URL to use for transactions
+ * @param funderPrivateKey Optional funder private key to use as fee payer (to prevent rent errors)
  * @returns Array of transaction signatures or null values for failed transactions
  */
 export async function returnFundsToFunder(
   generatedWallets: WalletInfo[],
   funderPublicKey: string,
   rpcUrl: string,
+  funderPrivateKey?: string,
   useJito: boolean = false,
   retryCount: number = 0
 ): Promise<(string | null)[]> {
@@ -782,6 +875,12 @@ export async function returnFundsToFunder(
     const connection = new Connection(rpcUrl, 'confirmed');
     const funderPubkey = new PublicKey(funderPublicKey);
     const results: (string | null)[] = [];
+    
+    // Parse funder keypair if provided
+    let funderKeypair: Keypair | null = null;
+    if (funderPrivateKey) {
+      funderKeypair = parsePrivateKey(funderPrivateKey);
+    }
     
     // Process wallets in batches to avoid rate limiting
     const batchSize = 5;
@@ -814,17 +913,23 @@ export async function returnFundsToFunder(
             );
           }
           
-          // Simulate the transaction to get accurate fee estimate
-          transaction.feePayer = walletKeypair.publicKey;
+          // Determine who pays the fees - use funder if available
+          let feePayer = funderKeypair ? funderKeypair.publicKey : walletKeypair.publicKey;
+          transaction.feePayer = feePayer;
+          
           const { blockhash, lastValidBlockHeight } = await connection.getLatestBlockhash();
-          const fee = 5000 * 10; // Use fixed fee estimate of 5000 lamports per signature with buffer
           
-          // Calculate the amount to send (balance - fees - jito tip)
-          const amountToSend = balance - fee - jitoTipAmount;
-          
-          if (amountToSend <= 0) {
-            console.log(`Wallet ${wallet.publicKey} balance (${balance / LAMPORTS_PER_SOL} SOL) is too small to cover fees.`);
-            return null;
+          // If wallet is paying fees
+          let amountToSend = balance;
+          if (!funderKeypair) {
+            // Reserve funds for fees
+            const fee = 5000 * 10; // Use fixed fee estimate of 5000 lamports per signature with buffer
+            amountToSend = balance - fee - jitoTipAmount;
+            
+            if (amountToSend <= 0) {
+              console.log(`Wallet ${wallet.publicKey} balance (${balance / LAMPORTS_PER_SOL} SOL) is too small to cover fees.`);
+              return null;
+            }
           }
           
           // Add the transfer instruction
@@ -836,17 +941,49 @@ export async function returnFundsToFunder(
             })
           );
           
+          // Set transaction parameters
+          transaction.recentBlockhash = blockhash;
+          transaction.lastValidBlockHeight = lastValidBlockHeight;
+          
           // Send and confirm transaction
           let signature: string;
           
+          // Determine signers
+          const signers = funderKeypair 
+            ? [walletKeypair, funderKeypair] 
+            : [walletKeypair];
+            
           try {
             if (useJito) {
-              signature = await sendTransactionViaJito(transaction, [walletKeypair], connection);
+              signature = await sendTransactionViaJito(transaction, signers, connection);
             } else {
-              signature = await sendAndConfirmTransaction(connection, transaction, [walletKeypair]);
+              signature = await sendAndConfirmTransaction(connection, transaction, signers);
             }
           } catch (err: any) {
-            // If regular transaction failed and we haven't tried too many times, retry with standard method
+            console.error(`Return funds transaction failed:`, err);
+            
+            // If it's an insufficient funds for rent error and we're not using funder as fee payer,
+            // try again by making the funder the fee payer if possible
+            if (
+              !funderKeypair && 
+              funderPrivateKey && 
+              err.message && 
+              (err.message.includes("Insufficient funds") || err.message.includes("InsufficientFundsForRent"))
+            ) {
+              console.log("Insufficient funds for rent error detected, retrying with funder as fee payer...");
+              
+              const singleRetry = await returnFundsToFunder(
+                [wallet], 
+                funderPublicKey, 
+                rpcUrl, 
+                funderPrivateKey,
+                useJito, 
+                0
+              );
+              return singleRetry[0];
+            }
+            
+            // Regular retry logic
             if (!useJito && retryCount < 3) {
               console.log(`Regular transaction failed, retrying standard method (${retryCount + 1}/3)...`);
               await new Promise(resolve => setTimeout(resolve, 1000)); // Small delay before retry
@@ -856,6 +993,7 @@ export async function returnFundsToFunder(
                 [wallet], 
                 funderPublicKey, 
                 rpcUrl, 
+                funderPrivateKey,
                 false, 
                 retryCount + 1
               );
@@ -868,6 +1006,7 @@ export async function returnFundsToFunder(
                 [wallet], 
                 funderPublicKey, 
                 rpcUrl, 
+                funderPrivateKey,
                 true, 
                 0
               );
