@@ -143,6 +143,80 @@ export async function deleteWalletsFromSupabase(userId: string, walletPublicKeys
 }
 
 /**
+ * Refresh wallet balances and immediately save them to Supabase
+ * @param wallets Array of wallet information objects
+ * @param rpcUrl RPC URL to use for balance checks
+ * @param userId User ID for Supabase storage
+ * @param supabaseClient Supabase client instance
+ * @returns Updated wallet array with fresh balances
+ */
+export async function refreshAndSaveWalletBalances(
+  wallets: WalletInfo[],
+  rpcUrl: string,
+  userId: string | undefined,
+  supabaseClient: any
+): Promise<WalletInfo[]> {
+  // First refresh the balances
+  const updatedWallets = await refreshWalletBalances(wallets, rpcUrl);
+  
+  // Then save to Supabase if we have a user ID
+  if (userId && updatedWallets.length > 0) {
+    console.log(`Saving ${updatedWallets.length} refreshed wallets to Supabase`);
+    await saveWalletsToSupabase(userId, updatedWallets, supabaseClient);
+  }
+  
+  return updatedWallets;
+}
+
+/**
+ * Refresh a single wallet's balance and save to Supabase
+ * @param wallet The wallet to refresh
+ * @param rpcUrl RPC URL to use for balance checks
+ * @param userId User ID for Supabase storage
+ * @param supabaseClient Supabase client instance
+ * @param walletType Optional type ('developer' or 'funder') for main wallets
+ * @returns Updated wallet with fresh balance
+ */
+export async function refreshAndSaveWalletBalance(
+  wallet: { publicKey: string, privateKey: string, balance: string | null },
+  rpcUrl: string,
+  userId: string | undefined,
+  supabaseClient: any,
+  walletType?: 'developer' | 'funder'
+): Promise<{ publicKey: string, privateKey: string, balance: string | null }> {
+  if (!wallet || !wallet.publicKey) {
+    return wallet;
+  }
+  
+  try {
+    // Fetch the fresh balance
+    const balance = await getWalletBalance(wallet.publicKey, rpcUrl);
+    
+    // Create updated wallet object
+    const updatedWallet = {
+      ...wallet,
+      balance
+    };
+    
+    // Save to Supabase if we have a user ID
+    if (userId) {
+      if (walletType) {
+        // Save as a main wallet (developer or funder)
+        await saveMainWalletToSupabase(userId, walletType, updatedWallet, supabaseClient);
+      } else {
+        // Save as a regular generated wallet
+        await saveWalletsToSupabase(userId, [updatedWallet], supabaseClient);
+      }
+    }
+    
+    return updatedWallet;
+  } catch (error) {
+    console.error(`Error refreshing wallet ${wallet.publicKey}:`, error);
+    return wallet;
+  }
+}
+
+/**
  * Save main wallet (developer or funder) to Supabase
  * @param userId User ID
  * @param walletType 'developer' or 'funder'

@@ -102,7 +102,9 @@ export default function WalletsPage() {
     generatedWallets,
     developerWallet,
     funderWallet,
-    settings.rpcUrl || null
+    settings.rpcUrl || null,
+    user,  // Add the user object
+    supabase  // Add the supabase client
   );
   
   // Processing states
@@ -125,31 +127,49 @@ export default function WalletsPage() {
       if (cachedWallets.length > 0) {
         console.log(`Saving ${cachedWallets.length} generated wallets to Supabase with balances:`, 
           cachedWallets.map(w => ({pubkey: w.publicKey.slice(0,8), balance: w.balance})));
+          
+        // Save to Supabase
         await saveWalletsToSupabase(user.id, cachedWallets, supabase);
+        
+        // Update main state to match cache
+        setGeneratedWallets(cachedWallets);
       }
       
       // Save developer wallet
       if (cachedDevWallet) {
         console.log(`Saving developer wallet to Supabase: ${cachedDevWallet.publicKey.slice(0,8)} with balance ${cachedDevWallet.balance}`);
+        
+        // Save to Supabase
         await saveMainWalletToSupabase(user.id, 'developer', cachedDevWallet, supabase);
+        
+        // Update main state to match cache
+        setDeveloperWallet(cachedDevWallet);
       }
       
       // Save funder wallet
       if (cachedFundWallet) {
         console.log(`Saving funder wallet to Supabase: ${cachedFundWallet.publicKey.slice(0,8)} with balance ${cachedFundWallet.balance}`);
+        
+        // Save to Supabase
         await saveMainWalletToSupabase(user.id, 'funder', cachedFundWallet, supabase);
+        
+        // Update main state to match cache
+        setFunderWallet(cachedFundWallet);
       }
       
       console.log("Successfully saved all balances to Supabase");
     } catch (error) {
       console.error('Failed to save balances to Supabase:', error);
     }
-  }, [user, cachedWallets, cachedDevWallet, cachedFundWallet]);
+  }, [user, cachedWallets, cachedDevWallet, cachedFundWallet, setGeneratedWallets, setDeveloperWallet, setFunderWallet]);
 
   // Handle refresh balances with Supabase update
   const handleRefreshBalances = async () => {
     // First refresh balances
     await refreshBalances();
+    
+    // Add a small delay to ensure state updates are propagated
+    await new Promise(resolve => setTimeout(resolve, 300));
     
     // Then save the updated balances to Supabase
     await saveAllBalancesToSupabase();
@@ -193,6 +213,15 @@ export default function WalletsPage() {
             }
           }
         }
+        
+        // After loading wallets, if we have an RPC URL, refresh the balances
+        if (settings.rpcUrl && (wallets.length > 0 || mainWallets.developer || mainWallets.funder)) {
+          // Give state time to update before refreshing
+          setTimeout(() => {
+            refreshBalances().catch(console.error);
+          }, 500);
+        }
+        
       } catch (error) {
         console.error("Error loading saved wallets:", error);
         toast({
@@ -206,8 +235,7 @@ export default function WalletsPage() {
     }
     
     loadSavedWallets();
-    // NO automatic refresh of balances here
-  }, [user, toast]);
+  }, [user, toast, settings.rpcUrl, refreshBalances]);
 
   // Update the main wallet state in Supabase whenever they change
   useEffect(() => {
