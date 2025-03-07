@@ -155,7 +155,7 @@ export function DistributeFundsDialog({
     const totalAmount = value * walletCount;
     
     // Reserve 0.0015 SOL for transaction fees
-    const reserveAmount = 0.0000000015;
+    const reserveAmount = 0.0015;
     const availableBalance = funderBalance - reserveAmount;
     
     // Show error if below minimum

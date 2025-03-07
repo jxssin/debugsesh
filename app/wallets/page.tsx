@@ -89,6 +89,7 @@ export default function WalletsPage() {
   const { user } = useAuth();
 
   // UI state
+  const [isClearingWallets, setIsClearingWallets] = useState(false)
   const [showGenerateDialog, setShowGenerateDialog] = useState(false);
   const [showImportDialog, setShowImportDialog] = useState(false);
   const [showDistributeDialog, setShowDistributeDialog] = useState(false);
@@ -563,58 +564,139 @@ export default function WalletsPage() {
   }
 
   const handleClearAllWallets = async () => {
-    // First try to return funds if possible
-    let returnSuccess = true;
-    if (funderWallet && generatedWallets.length > 0 && generatedWallets.some(w => parseFloat(w.balance || "0") > 0)) {
+    try {
+      setIsClearingWallets(true);
+      
+      // First try to return funds if possible - with better validation
+      let returnSuccess = true;
+      let skippedReturnDueToNoFunder = false;
+      const walletsWithBalance = generatedWallets.filter(w => parseFloat(w.balance || "0") > 0);
+      
+      console.log(`Clear wallets: Found ${walletsWithBalance.length} wallets with balance`);
+      
+      if (walletsWithBalance.length > 0) {
+        // Check if we have a funder wallet to return to
+        if (!funderWallet || !funderWallet.publicKey) {
+          console.log("Clear wallets: No funder wallet available for returns");
+          skippedReturnDueToNoFunder = true;
+          toast({
+            title: "Warning",
+            description: "Can't return funds - no funder wallet configured. Wallets will be removed anyway.",
+            variant: "destructive"
+          });
+        } else {
+          try {
+            console.log("Attempting to return funds before clearing wallets...");
+            
+            // Create the indices of wallets with balance
+            const walletsWithBalanceIndices = walletsWithBalance.map(w => 
+              generatedWallets.findIndex(gw => gw.publicKey === w.publicKey)
+            ).filter(index => index !== -1);
+            
+            console.log(`Clear wallets: Returning funds from indices: ${walletsWithBalanceIndices.join(', ')}`);
+            
+            // Return funds with more robust error handling
+            let returnResults: (string | null)[] = [];
+            let successCount = 0;
+  
+            try {
+              const result = await handleReturnFunds({
+                selectedWallets: walletsWithBalanceIndices,
+                closeSplAccounts: true
+              });
+              
+              // Make sure result is an array
+              returnResults = Array.isArray(result) ? result : [];
+              
+              // Calculate success count
+              successCount = returnResults.length > 0 ? 
+                returnResults.filter((item: string | null) => item !== null).length : 0;
+                
+              console.log(`Clear wallets: ${successCount}/${walletsWithBalanceIndices.length} returns successful`);
+            } catch (error) {
+              console.error("Error in handleReturnFunds:", error);
+              returnResults = []; // Default to empty array on error
+              successCount = 0;
+            }
+            
+            if (successCount === 0 && walletsWithBalanceIndices.length > 0) {
+              returnSuccess = false;
+              toast({
+                title: "Fund Return Failed",
+                description: "Failed to return funds. Wallets will still be removed from your list.",
+                variant: "destructive"
+              });
+            } else if (successCount < walletsWithBalanceIndices.length) {
+              toast({
+                title: "Partial Fund Return",
+                description: `Returned funds from ${successCount}/${walletsWithBalanceIndices.length} wallets. All wallets will be removed.`,
+                variant: "destructive"
+              });
+            }
+          } catch (error) {
+            console.error("Failed to return funds:", error);
+            returnSuccess = false;
+            
+            toast({
+              title: "Fund Return Failed",
+              description: "Error returning funds. Wallets will still be removed from your list.",
+              variant: "destructive"
+            });
+          }
+        }
+      } else {
+        console.log("Clear wallets: No wallets with balance to return");
+      }
+      
+      // Store the public keys of wallets to delete from Supabase
+      const walletsToDelete = [...generatedWallets];
+      console.log(`Clear wallets: Removing ${walletsToDelete.length} wallets from UI and database`);
+      
+      // Now clear the wallets array regardless of return success
+      setGeneratedWallets([]);
+      
+      // Delete from Supabase if user is logged in
       try {
-        console.log("Attempting to return funds before clearing wallets...");
-        await handleReturnFunds({
-          selectedWallets: generatedWallets.map((_, index) => index),
-          closeSplAccounts: true
-        });
-      } catch (error) {
-        console.error("Failed to return funds:", error);
-        returnSuccess = false;
+        if (user && walletsToDelete.length > 0) {
+          await deleteWalletsFromSupabase(
+            user.id, 
+            walletsToDelete.map(w => w.publicKey), 
+            supabase
+          );
+          console.log("Clear wallets: Successfully deleted from Supabase");
+        }
         
-        // Show a toast message about the issue but continue with deletion
+        // Show appropriate toast message
+        if (walletsWithBalance.length === 0) {
+          toast({
+            title: "Wallets Cleared",
+            description: "All generated wallets have been removed. No funds needed to be returned."
+          });
+        } else if (skippedReturnDueToNoFunder) {
+          // Already showed a toast about this above
+        } else if (returnSuccess) {
+          toast({
+            title: "Wallets Cleared",
+            description: "Funds returned and all generated wallets have been removed."
+          });
+        } // Other failure cases already show toasts
+      } catch (dbError) {
+        console.error("Failed to delete wallets from database:", dbError);
         toast({
-          title: "Fund Return Failed",
-          description: "Failed to return some funds, but wallets will still be removed from your list.",
+          title: "Database Error",
+          description: "Wallets were removed from view but there was an error updating the database.",
           variant: "destructive"
         });
       }
-    }
-    
-    // Store the public keys of wallets to delete from Supabase
-    const walletsToDelete = [...generatedWallets];
-    
-    // Now clear the wallets array regardless of return success
-    setGeneratedWallets([]);
-    
-    // Delete from Supabase if user is logged in
-    try {
-      if (user && walletsToDelete.length > 0) {
-        await deleteWalletsFromSupabase(
-          user.id, 
-          walletsToDelete.map(w => w.publicKey), 
-          supabase
-        );
-      }
-      
-      // Show appropriate toast message
-      if (returnSuccess) {
-        toast({
-          title: "Wallets Cleared",
-          description: "All generated wallets have been removed."
-        });
-      }
-    } catch (dbError) {
-      console.error("Failed to delete wallets from database:", dbError);
+    } catch (error) {
+      console.error("Unexpected error in clearAllWallets:", error);
       toast({
-        title: "Database Error",
-        description: "Wallets were removed from view but there was an error updating the database.",
+        title: "Error",
+        description: "An unexpected error occurred while clearing wallets.",
         variant: "destructive"
       });
+    } finally {
+      setIsClearingWallets(false);
     }
   }
   
@@ -1328,6 +1410,7 @@ export default function WalletsPage() {
             onOpenChange={setShowClearWalletsDialog}
             onConfirm={handleClearAllWallets}
             isPremium={isPremium}
+            isLoading={isClearingWallets}
           />
           
           <DistributeFundsDialog

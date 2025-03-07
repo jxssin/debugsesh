@@ -9,15 +9,23 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog"
+import { Loader2 } from "lucide-react"
 
 interface ClearWalletsDialogProps {
   open: boolean
   onOpenChange: (open: boolean) => void
   onConfirm: () => void
   isPremium: boolean
+  isLoading?: boolean
 }
 
-export function ClearWalletsDialog({ open, onOpenChange, onConfirm, isPremium }: ClearWalletsDialogProps) {
+export function ClearWalletsDialog({ 
+  open, 
+  onOpenChange, 
+  onConfirm, 
+  isPremium, 
+  isLoading = false 
+}: ClearWalletsDialogProps) {
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent>
@@ -40,7 +48,7 @@ export function ClearWalletsDialog({ open, onOpenChange, onConfirm, isPremium }:
           </DialogDescription>
         </DialogHeader>
         <DialogFooter>
-          <Button variant="outline" onClick={() => onOpenChange(false)}>
+          <Button variant="outline" onClick={() => onOpenChange(false)} disabled={isLoading}>
             Cancel
           </Button>
           <Button
@@ -49,8 +57,16 @@ export function ClearWalletsDialog({ open, onOpenChange, onConfirm, isPremium }:
               onConfirm()
               onOpenChange(false)
             }}
+            disabled={isLoading}
           >
-            Clear All
+            {isLoading ? (
+              <>
+                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                Clearing...
+              </>
+            ) : (
+              "Clear All"
+            )}
           </Button>
         </DialogFooter>
       </DialogContent>

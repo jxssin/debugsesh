@@ -403,59 +403,75 @@ let cachedTipExpiry = 0;
  */
 async function getOptimalJitoTip(maxTipAmount?: number): Promise<number> {
   try {
-    // Default values
+    // Default values in lamports
     const defaultTip = 0.0001 * LAMPORTS_PER_SOL;
     
-    // Important: Properly enforce the user's max tip amount
-    // If provided, convert from SOL to lamports, otherwise use default
+    // User max tip in lamports
     const userMaxTip = maxTipAmount ? maxTipAmount * LAMPORTS_PER_SOL : 0.0005 * LAMPORTS_PER_SOL;
     
-    // Use cached tip if available and not expired (cache for 5 minutes)
+    console.log(`getOptimalJitoTip called with maxTipAmount: ${maxTipAmount} SOL (${userMaxTip} lamports)`);
+    
+    // Use cached tip if available and not expired
     const now = Date.now();
     if (cachedTipAmount !== null && now < cachedTipExpiry) {
-      // IMPORTANT: Always respect user max tip even with cached values
+      console.log(`Using cached tip amount: ${cachedTipAmount / LAMPORTS_PER_SOL} SOL`);
       return Math.min(cachedTipAmount, userMaxTip);
     }
     
-    // Rate limit handling - ensure 1 second between API calls
+    // Rate limit handling
     const timeSinceLastCall = now - lastJitoTipApiTime;
     if (timeSinceLastCall < 1000) {
       const waitTime = 1000 - timeSinceLastCall;
+      console.log(`Rate limiting: waiting ${waitTime}ms before API call`);
       await new Promise(resolve => setTimeout(resolve, waitTime));
     }
     
-    // Update the last call time
     lastJitoTipApiTime = Date.now();
     
     try {
-      // Use your own API endpoint instead of direct Jito API
+      console.log('Making API call to /api/jito-tip...');
       const response = await axios.get('/api/jito-tip');
+      console.log('API response received:', response.data);
       
-      if (response.data && response.data.landed_tips_75th_percentile) {
-        // Get 75th percentile in lamports
-        const tipBase = response.data.landed_tips_75th_percentile;
+      if (response.data && Array.isArray(response.data) && response.data.length > 0) {
+        const tipData = response.data[0];
         
-        // Add 50% extra
-        const tipWithExtra = Math.ceil(tipBase * 1.5);
-        
-        // IMPORTANT: Always strictly enforce the user's max tip amount
-        const finalTip = Math.min(tipWithExtra, userMaxTip);
-        
-        console.log(`Jito tip: 75th percentile (${tipBase / LAMPORTS_PER_SOL} SOL) + 50% = ${tipWithExtra / LAMPORTS_PER_SOL} SOL, user max: ${userMaxTip / LAMPORTS_PER_SOL} SOL, final: ${finalTip / LAMPORTS_PER_SOL} SOL`);
-        
-        // Cache the result for 5 minutes
-        cachedTipAmount = finalTip;
-        cachedTipExpiry = now + 5 * 60 * 1000;
-        
-        return finalTip;
+        if (tipData.landed_tips_75th_percentile !== undefined) {
+          // API returns values in SOL
+          const tipInSol = tipData.landed_tips_75th_percentile;
+          console.log(`75th percentile tip from API: ${tipInSol} SOL`);
+          
+          // Add 50% extra (still in SOL)
+          const tipWithExtraInSol = tipInSol * 1.5;
+          console.log(`Tip with 50% extra: ${tipWithExtraInSol} SOL`);
+          
+          // Convert to lamports
+          const tipInLamports = Math.ceil(tipWithExtraInSol * LAMPORTS_PER_SOL);
+          console.log(`Tip converted to lamports: ${tipInLamports} lamports`);
+          
+          // Ensure minimum tip is reasonable (at least 5000 lamports = 0.000005 SOL)
+          const minTip = 5000;
+          const adjustedTip = Math.max(tipInLamports, minTip);
+          
+          // Apply user max
+          const finalTip = Math.min(adjustedTip, userMaxTip);
+          console.log(`Final tip (after min/max adjustments): ${finalTip} lamports (${finalTip / LAMPORTS_PER_SOL} SOL)`);
+          
+          // Cache result
+          cachedTipAmount = finalTip;
+          cachedTipExpiry = now + 5 * 60 * 1000;
+          
+          return finalTip;
+        }
       }
     } catch (error) {
       console.error('Failed to fetch Jito tip amount:', error);
-      // Fallback silently
     }
     
-    // For fallbacks, still respect user's max tip
-    return Math.min(defaultTip, userMaxTip);
+    // Fallback
+    const fallbackTip = Math.min(defaultTip, userMaxTip);
+    console.log(`Using fallback tip: ${fallbackTip / LAMPORTS_PER_SOL} SOL`);
+    return fallbackTip;
   } catch (error) {
     console.error('Error in getOptimalJitoTip:', error);
     return 0.0001 * LAMPORTS_PER_SOL;
