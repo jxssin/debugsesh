@@ -1,6 +1,6 @@
 "use client"
 
-import { useState } from "react"
+import { useState, useEffect } from "react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import {
@@ -12,10 +12,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog"
 import { Label } from "@/components/ui/label"
-import { Slider } from "@/components/ui/slider"
 import { Switch } from "@/components/ui/switch"
-import { Info } from "lucide-react"
-import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip"
 
 interface DistributeFundsDialogProps {
   open: boolean
@@ -40,30 +37,43 @@ export function DistributeFundsDialog({
   onOpenChange, 
   onDistribute,
   maxWallets,
-  minAmount = 0.0001, // Minimum amount is 0.0001 SOL
   maxAmount = 1,
   isPremium
 }: DistributeFundsDialogProps) {
-  const [amount, setAmount] = useState<number>(minAmount)
-  const [isRandom, setIsRandom] = useState<boolean>(false)
-  const [randomMinAmount, setRandomMinAmount] = useState<number>(minAmount)
-  const [randomMaxAmount, setRandomMaxAmount] = useState<number>(maxAmount)
+  const [amount, setAmount] = useState<number | null>(null)
+  const [inputValue, setInputValue] = useState<string>("")
   const [selectedWallets, setSelectedWallets] = useState<number[]>([])
   const [selectAll, setSelectAll] = useState<boolean>(true)
+  const [inputError, setInputError] = useState<string | null>(null)
+  
+  useEffect(() => {
+    if (open) {
+      // Reset state when dialog opens
+      setAmount(null)
+      setInputValue("")
+      setInputError(null)
+      setSelectedWallets([])
+      setSelectAll(true)
+    }
+  }, [open])
   
   const walletArray = Array.from({ length: maxWallets }, (_, i) => i);
   
   const handleDistribute = () => {
+    // Validate amount before proceeding
+    if (!amount || amount < 0.0015) {
+      setInputError("Minimum amount required: 0.0015 SOL")
+      return
+    }
+    
     // Calculate final wallet selection
     const finalSelection = selectAll 
       ? walletArray 
       : selectedWallets;
       
     onDistribute({
-      amount,
-      isRandom,
-      minAmount: isRandom ? randomMinAmount : undefined,
-      maxAmount: isRandom ? randomMaxAmount : undefined,
+      amount: amount,
+      isRandom: false, // Always false since we removed random amounts option
       selectedWallets: finalSelection
     });
     
@@ -91,25 +101,40 @@ export function DistributeFundsDialog({
   // Handle manual input for amount with validation
   const handleAmountChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const input = e.target.value;
+    setInputValue(input);
     
-    // Allow empty string for better UX while typing
     if (input === '') {
-      setAmount(0);
+      setAmount(null);
+      setInputError(null);
       return;
     }
     
-    const value = parseFloat(input);
+    // Handle both comma and period as decimal separators
+    const sanitizedInput = input.replace(',', '.');
+    
+    // Limit to 9 decimal places
+    const decimalIndex = sanitizedInput.indexOf('.');
+    if (decimalIndex !== -1 && sanitizedInput.length > decimalIndex + 10) {
+      // Too many decimal places, don't update
+      return;
+    }
+    
+    const value = parseFloat(sanitizedInput);
+    
     if (isNaN(value)) {
+      setAmount(null);
+      setInputError("Please enter a valid number");
       return;
     }
     
-    // Ensure value is within bounds
-    if (value < minAmount) {
-      setAmount(minAmount);
-    } else if (value > maxAmount) {
-      setAmount(maxAmount);
+    // Set amount to actual entered value
+    setAmount(value);
+    
+    // Show error if below minimum
+    if (value < 0.0015) {
+      setInputError("Minimum amount required: 0.0015 SOL");
     } else {
-      setAmount(value);
+      setInputError(null);
     }
   };
   
@@ -123,83 +148,22 @@ export function DistributeFundsDialog({
           </DialogDescription>
         </DialogHeader>
         <div className="grid gap-4 py-4">
-          {/* Distribution Method */}
-          <div className="flex items-center justify-between">
-            <Label htmlFor="random-amounts" className="flex items-center gap-2">
-              Random Amounts
-              <TooltipProvider>
-                <Tooltip>
-                  <TooltipTrigger asChild>
-                    <Info size={16} className="text-muted-foreground" />
-                  </TooltipTrigger>
-                  <TooltipContent>
-                    <p>Distribute random amounts between min and max values</p>
-                  </TooltipContent>
-                </Tooltip>
-              </TooltipProvider>
-            </Label>
-            <Switch
-              id="random-amounts"
-              checked={isRandom}
-              onCheckedChange={setIsRandom}
-              disabled={!isPremium}
+          {/* Fixed Amount */}
+          <div className="grid gap-2">
+            <Label htmlFor="fixed-amount">Amount per Wallet (SOL)</Label>
+            <Input
+              id="fixed-amount"
+              type="text"
+              inputMode="decimal"
+              value={inputValue}
+              onChange={handleAmountChange}
+              placeholder="Minimum: 0.0015 SOL"
+              className={`no-spinner ${inputError ? "border-red-500" : ""}`}
             />
+            {inputError && (
+              <p className="text-xs text-red-500">{inputError}</p>
+            )}
           </div>
-          
-          {isRandom ? (
-            <>
-              {/* Random Min Amount */}
-              <div className="grid gap-2">
-                <div className="flex justify-between">
-                  <Label htmlFor="min-amount">Minimum Amount (SOL)</Label>
-                  <span className="text-sm">{randomMinAmount.toFixed(4)}</span>
-                </div>
-                <Slider 
-                  value={[randomMinAmount]} 
-                  min={minAmount} 
-                  max={randomMaxAmount}
-                  step={0.0001}
-                  onValueChange={([value]) => setRandomMinAmount(value)}
-                />
-              </div>
-              
-              {/* Random Max Amount */}
-              <div className="grid gap-2">
-                <div className="flex justify-between">
-                  <Label htmlFor="max-amount">Maximum Amount (SOL)</Label>
-                  <span className="text-sm">{randomMaxAmount.toFixed(4)}</span>
-                </div>
-                <Slider 
-                  value={[randomMaxAmount]} 
-                  min={randomMinAmount} 
-                  max={maxAmount}
-                  step={0.0001}
-                  onValueChange={([value]) => setRandomMaxAmount(value)}
-                />
-              </div>
-            </>
-          ) : (
-            <>
-              {/* Fixed Amount */}
-              <div className="grid gap-2">
-                <Label htmlFor="fixed-amount">Amount per Wallet (SOL)</Label>
-                <Input
-                  id="fixed-amount"
-                  type="text"
-                  inputMode="decimal"
-                  value={amount === 0 ? '' : amount}
-                  onChange={handleAmountChange}
-                  min={minAmount}
-                  max={maxAmount}
-                  step={0.0001}
-                  className="no-spinner"
-                />
-                {amount < minAmount && (
-                  <p className="text-xs text-red-500">Minimum amount is {minAmount} SOL</p>
-                )}
-              </div>
-            </>
-          )}
           
           {/* Wallet Selection - Premium Feature */}
           {isPremium && (
@@ -253,10 +217,7 @@ export function DistributeFundsDialog({
             <div className="flex justify-between items-center">
               <span className="font-medium">Estimated total:</span>
               <span>
-                {isRandom 
-                  ? `~${((randomMinAmount + randomMaxAmount) / 2 * (selectAll ? maxWallets : selectedWallets.length)).toFixed(4)}` 
-                  : (amount * (selectAll ? maxWallets : selectedWallets.length)).toFixed(4)
-                } SOL
+                {((amount || 0) * (selectAll ? maxWallets : selectedWallets.length)).toFixed(4)} SOL
               </span>
             </div>
           </div>
@@ -272,8 +233,8 @@ export function DistributeFundsDialog({
             onClick={handleDistribute}
             disabled={
               (!selectAll && selectedWallets.length === 0) || 
-              amount < minAmount || 
-              (isRandom && (randomMinAmount < minAmount || randomMaxAmount <= randomMinAmount))
+              !amount || 
+              amount < 0.0015
             }
           >
             Distribute

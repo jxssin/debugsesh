@@ -643,18 +643,19 @@ export default function WalletsPage() {
       // Get the wallet subset to distribute to
       const targetWallets = options.selectedWallets.map(index => generatedWallets[index]);
       
-      // Handle random amounts if enabled
-      let amounts: number[] = [];
-      if (options.isRandom && options.minAmount !== undefined && options.maxAmount !== undefined) {
-        amounts = targetWallets.map(() => {
-          const min = options.minAmount || 0.0001;
-          const max = options.maxAmount || 0.01;
-          return min + Math.random() * (max - min);
+      // Validate minimum amount (0.0015 SOL)
+      if (options.amount < 0.0015) {
+        toast({
+          title: "Amount Too Small",
+          description: "Minimum distribution amount is 0.0015 SOL per wallet.",
+          variant: "destructive"
         });
-      } else {
-        // Same amount for all wallets
-        amounts = targetWallets.map(() => options.amount);
+        setIsDistributing(false);
+        return;
       }
+      
+      // Same amount for all wallets
+      const amounts = targetWallets.map(() => options.amount);
       
       // Calculate total amount
       const totalAmount = amounts.reduce((sum, amount) => sum + amount, 0);
@@ -1336,7 +1337,6 @@ export default function WalletsPage() {
             onOpenChange={setShowDistributeDialog}
             onDistribute={handleDistributeFunds}
             maxWallets={generatedWallets.length}
-            minAmount={0.0001}
             maxAmount={funderWallet ? parseFloat(funderWallet.balance || "0") : 1}
             isPremium={isPremium}
           />
