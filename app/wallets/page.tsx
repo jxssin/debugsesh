@@ -950,10 +950,8 @@ export default function WalletsPage() {
               <h1 className="text-2xl font-bold">MAIN WALLETS</h1>
               <div className="flex items-center gap-3">
                 {isRefetchingData && (
-                  <div className="flex items-center text-sm text-muted-foreground">
-                    <RefreshCw size={12} className="animate-spin mr-2" />
-                    Loading...
-                  </div>
+                  <div className="flex items-center gap-3">
+                </div>
                 )}
                 <Button
                   variant="outline"
@@ -1337,7 +1335,7 @@ export default function WalletsPage() {
             onOpenChange={setShowDistributeDialog}
             onDistribute={handleDistributeFunds}
             maxWallets={generatedWallets.length}
-            maxAmount={funderWallet ? parseFloat(funderWallet.balance || "0") : 1}
+            funderBalance={funderWallet ? parseFloat(funderWallet.balance || "0") : 0}
             isPremium={isPremium}
           />
           

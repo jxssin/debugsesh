@@ -21,6 +21,7 @@ interface DistributeFundsDialogProps {
   maxWallets: number
   minAmount?: number
   maxAmount?: number
+  funderBalance: number
   isPremium: boolean
 }
 
@@ -38,6 +39,7 @@ export function DistributeFundsDialog({
   onDistribute,
   maxWallets,
   maxAmount = 1,
+  funderBalance,
   isPremium
 }: DistributeFundsDialogProps) {
   const [amount, setAmount] = useState<number | null>(null)
@@ -56,6 +58,24 @@ export function DistributeFundsDialog({
       setSelectAll(true)
     }
   }, [open])
+  
+  // Re-validate amount when wallet selection changes
+  useEffect(() => {
+    if (amount) {
+      const walletCount = selectAll ? maxWallets : selectedWallets.length;
+      const totalAmount = amount * walletCount;
+      
+      // Reserve 0.0015 SOL for transaction fees
+      const reserveAmount = 0.0015;
+      const availableBalance = funderBalance - reserveAmount;
+      
+      if (totalAmount > availableBalance) {
+        setInputError(`Insufficient funds.\nAvailable: ${availableBalance.toFixed(9)} SOL (with reserve for fees)`);
+      } else if (amount >= 0.0015) {
+        setInputError(null);
+      }
+    }
+  }, [selectAll, selectedWallets, amount, funderBalance, maxWallets])
   
   const walletArray = Array.from({ length: maxWallets }, (_, i) => i);
   
@@ -130,9 +150,20 @@ export function DistributeFundsDialog({
     // Set amount to actual entered value
     setAmount(value);
     
+    // Calculate total amount
+    const walletCount = selectAll ? maxWallets : selectedWallets.length || 1;
+    const totalAmount = value * walletCount;
+    
+    // Reserve 0.0015 SOL for transaction fees
+    const reserveAmount = 0.0000000015;
+    const availableBalance = funderBalance - reserveAmount;
+    
     // Show error if below minimum
     if (value < 0.0015) {
       setInputError("Minimum amount required: 0.0015 SOL");
+    // Show error if total exceeds funder balance (minus reserve)
+    } else if (totalAmount > availableBalance) {
+      setInputError(`Insufficient funds. Available: ${availableBalance.toFixed(9)} SOL (with reserve for fees)`);
     } else {
       setInputError(null);
     }
@@ -161,7 +192,7 @@ export function DistributeFundsDialog({
               className={`no-spinner ${inputError ? "border-red-500" : ""}`}
             />
             {inputError && (
-              <p className="text-xs text-red-500">{inputError}</p>
+              <p className="text-xs text-red-500 whitespace-pre-line">{inputError}</p>
             )}
           </div>
           
@@ -217,7 +248,7 @@ export function DistributeFundsDialog({
             <div className="flex justify-between items-center">
               <span className="font-medium">Estimated total:</span>
               <span>
-                {((amount || 0) * (selectAll ? maxWallets : selectedWallets.length)).toFixed(4)} SOL
+                {((amount || 0) * (selectAll ? maxWallets : selectedWallets.length)).toFixed(9)} SOL
               </span>
             </div>
           </div>
@@ -234,7 +265,8 @@ export function DistributeFundsDialog({
             disabled={
               (!selectAll && selectedWallets.length === 0) || 
               !amount || 
-              amount < 0.0015
+              amount < 0.0015 ||
+              inputError !== null
             }
           >
             Distribute
