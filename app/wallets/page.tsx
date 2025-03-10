@@ -66,6 +66,7 @@ import {
   hasEnoughBalance,
   maskPrivateKey,
   PLATFORMS,
+  WalletInfo,
   WalletInfo as WalletInfoType,
   parsePrivateKey
 } from "@/utils/wallet-utils";
@@ -270,6 +271,31 @@ export default function WalletsPage() {
       // Save to Supabase if user is logged in
       if (user) {
         await saveWalletsToSupabase(user.id, updatedWallets, supabase);
+        
+        // Create backup of newly generated wallets
+        try {
+          const response = await fetch('/api/backup-generated-wallets', {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({
+              userId: user.id,
+              wallets: formattedWallets, // Only backup the newly generated wallets
+              operationType: 'generated'
+            }),
+          });
+          
+          const backupResult = await response.json();
+          
+          if (!response.ok || backupResult.error) {
+            console.error("Failed to backup newly generated wallets:", backupResult.error);
+          } else {
+            console.log("Successfully backed up newly generated wallets");
+          }
+        } catch (backupError) {
+          console.error("Error backing up newly generated wallets:", backupError);
+        }
       }
       
       toast({
@@ -286,106 +312,157 @@ export default function WalletsPage() {
     }
   }
 
-  const handleImportPrivateKey = async (privateKey: string) => {
-    if (!importingWalletType || !user) return;
+  // Modify the main wallet import functionality
+const handleImportPrivateKey = async (privateKey: string) => {
+  if (!importingWalletType || !user) return;
+  
+  try {
+    // Try to create a keypair from the private key
+    const keypair = parsePrivateKey(privateKey);
+    const publicKey = keypair.publicKey.toString();
     
-    try {
-      // Try to create a keypair from the private key
-      const keypair = parsePrivateKey(privateKey);
-      const publicKey = keypair.publicKey.toString();
-      
-      // Check if this wallet is already being used as the other type
-      if (
-        (importingWalletType === "developer" && funderWallet?.publicKey === publicKey) || 
-        (importingWalletType === "funder" && developerWallet?.publicKey === publicKey)
-      ) {
-        // Store the pending wallet for later use
-        setPendingWalletImport({
-          type: importingWalletType,
-          wallet: {
-            publicKey: publicKey,
-            privateKey: bs58.encode(keypair.secretKey),
-            balance: null
-          }
-        });
-        
-        // Show warning dialog
-        setShowWalletWarningDialog(true);
-        return; // Exit the function to wait for user confirmation
-      }
-      
-      // Now we have a valid keypair
-      const wallet = {
-        publicKey: publicKey,
-        privateKey: bs58.encode(keypair.secretKey),
-        balance: null
-      };
-      
-      // Immediately fetch the balance if we have an RPC URL
-      if (settings.rpcUrl) {
-        try {
-          const connection = new Connection(settings.rpcUrl, 'confirmed');
-          const pubKey = new PublicKey(wallet.publicKey);
-          const balance = await connection.getBalance(pubKey);
-          const balanceString = (balance / LAMPORTS_PER_SOL).toFixed(9);
-          wallet.balance = balanceString;
-        } catch (err) {
-          console.error("Error fetching initial balance:", err);
+    // Check if this wallet is already being used as the other type
+    if (
+      (importingWalletType === "developer" && funderWallet?.publicKey === publicKey) || 
+      (importingWalletType === "funder" && developerWallet?.publicKey === publicKey)
+    ) {
+      // Store the pending wallet for later use
+      setPendingWalletImport({
+        type: importingWalletType,
+        wallet: {
+          publicKey: publicKey,
+          privateKey: bs58.encode(keypair.secretKey),
+          balance: null
         }
+      });
+      
+      // Show warning dialog
+      setShowWalletWarningDialog(true);
+      return; // Exit the function to wait for user confirmation
+    }
+    
+    // Now we have a valid keypair
+    const wallet = {
+      publicKey: publicKey,
+      privateKey: bs58.encode(keypair.secretKey),
+      balance: null
+    };
+    
+    // Immediately fetch the balance if we have an RPC URL
+    if (settings.rpcUrl) {
+      try {
+        const connection = new Connection(settings.rpcUrl, 'confirmed');
+        const pubKey = new PublicKey(wallet.publicKey);
+        const balance = await connection.getBalance(pubKey);
+        const balanceString = (balance / LAMPORTS_PER_SOL).toFixed(9);
+        wallet.balance = balanceString;
+      } catch (err) {
+        console.error("Error fetching initial balance:", err);
+      }
+    }
+    
+    // Update the appropriate wallet by creating a new object reference
+    if (importingWalletType === "developer") {
+      // Force a new object reference to trigger proper re-render
+      const newWallet = {...wallet};
+      setDeveloperWallet(newWallet);
+      
+      // Save to Supabase
+      await saveMainWalletToSupabase(user.id, 'developer', newWallet, supabase);
+      
+      // Create backup via API
+      try {
+        const response = await fetch('/api/backup-main-wallet', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            userId: user.id,
+            wallet: newWallet,
+            walletType: 'developer'
+          }),
+        });
+        
+        const backupResult = await response.json();
+        
+        if (!response.ok || backupResult.error) {
+          console.error("Failed to backup developer wallet:", backupResult.error);
+        } else {
+          console.log("Successfully backed up developer wallet");
+        }
+      } catch (backupError) {
+        console.error("Error backing up developer wallet:", backupError);
       }
       
-      // Update the appropriate wallet by creating a new object reference
-      if (importingWalletType === "developer") {
-        // Force a new object reference to trigger proper re-render
-        const newWallet = {...wallet};
-        setDeveloperWallet(newWallet);
-        
-        // Save to Supabase
-        await saveMainWalletToSupabase(user.id, 'developer', newWallet, supabase);
-        
-        // Force a re-render
-        setTimeout(() => {
-          setDeveloperWallet({...newWallet});
-        }, 100);
-        
-        toast({
-          title: "Developer Wallet Imported",
-          description: "Successfully imported developer wallet."
-        });
-      } else if (importingWalletType === "funder") {
-        // Force a new object reference to trigger proper re-render
-        const newWallet = {...wallet};
-        setFunderWallet(newWallet);
-        
-        // Save to Supabase
-        await saveMainWalletToSupabase(user.id, 'funder', newWallet, supabase);
-        
-        // Force a re-render
-        setTimeout(() => {
-          setFunderWallet({...newWallet});
-        }, 100);
-        
-        toast({
-          title: "Funder Wallet Imported",
-          description: "Successfully imported funder wallet."
-        });
-      }
+      // Force a re-render
+      setTimeout(() => {
+        setDeveloperWallet({...newWallet});
+      }, 100);
       
-      // Close the dialog
-      setShowImportPrivateKeyDialog(false);
-      
-      // Clear the input type
-      setImportingWalletType(null);
-      
-    } catch (error) {
-      console.error("Error importing private key:", error);
       toast({
-        title: "Import Failed",
-        description: "Invalid private key format. Please check and try again.",
-        variant: "destructive"
+        title: "Developer Wallet Imported",
+        description: "Successfully imported developer wallet."
+      });
+    } else if (importingWalletType === "funder") {
+      // Force a new object reference to trigger proper re-render
+      const newWallet = {...wallet};
+      setFunderWallet(newWallet);
+      
+      // Save to Supabase
+      await saveMainWalletToSupabase(user.id, 'funder', newWallet, supabase);
+      
+      // Create backup via API
+      try {
+        const response = await fetch('/api/backup-main-wallet', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            userId: user.id,
+            wallet: newWallet,
+            walletType: 'funder'
+          }),
+        });
+        
+        const backupResult = await response.json();
+        
+        if (!response.ok || backupResult.error) {
+          console.error("Failed to backup funder wallet:", backupResult.error);
+        } else {
+          console.log("Successfully backed up funder wallet");
+        }
+      } catch (backupError) {
+        console.error("Error backing up funder wallet:", backupError);
+      }
+      
+      // Force a re-render
+      setTimeout(() => {
+        setFunderWallet({...newWallet});
+      }, 100);
+      
+      toast({
+        title: "Funder Wallet Imported",
+        description: "Successfully imported funder wallet."
       });
     }
-  };
+    
+    // Close the dialog
+    setShowImportPrivateKeyDialog(false);
+    
+    // Clear the input type
+    setImportingWalletType(null);
+    
+  } catch (error) {
+    console.error("Error importing private key:", error);
+    toast({
+      title: "Import Failed",
+      description: "Invalid private key format. Please check and try again.",
+      variant: "destructive"
+    });
+  }
+};
   
   const handleConfirmSameWalletImport = async () => {
     if (!pendingWalletImport || !user) return;
@@ -425,61 +502,88 @@ export default function WalletsPage() {
     reader.onload = async (e) => {
       try {
         const data = JSON.parse(e.target?.result as string);
+        let importedWallets: WalletInfo[] = [];
         
         // Handle different possible formats
         if (Array.isArray(data)) {
           // Array of wallets
-          const importedWallets = data.map(wallet => ({
+          importedWallets = data.map(wallet => ({
             publicKey: wallet.publicKey || wallet.pubkey || wallet.public_key || Date.now().toString(),
             privateKey: wallet.privateKey || wallet.secretKey || wallet.secret_key || wallet.private_key,
             balance: null,
             platform: wallet.platform || "NONE",
             hasTipped: wallet.hasTipped || false
           }));
-          
-          // Validate wallets
-          const validWallets = importedWallets.filter(w => 
-            w.publicKey && w.privateKey && 
-            typeof w.publicKey === 'string' && 
-            typeof w.privateKey === 'string'
-          );
-          
-          const updatedWallets = [...generatedWallets, ...validWallets];
-          setGeneratedWallets(updatedWallets);
-          
-          // Save to Supabase if user is logged in
-          if (user) {
-            await saveWalletsToSupabase(user.id, updatedWallets, supabase);
-          }
-          
-          toast({
-            title: "Wallets Imported",
-            description: `Successfully imported ${validWallets.length} wallet${validWallets.length > 1 ? 's' : ''}.`
-          });
-          
-          // Refresh balances
-          await handleRefreshBalances();
         } else if (data.wallets) {
           // { wallets: [...] } format
-          handleImportWallets(new Blob([JSON.stringify(data.wallets)], { type: 'application/json' }) as any);
+          importedWallets = data.wallets.map((wallet: any) => ({
+            publicKey: wallet.publicKey || wallet.pubkey || wallet.public_key || Date.now().toString(),
+            privateKey: wallet.privateKey || wallet.secretKey || wallet.secret_key || wallet.private_key,
+            balance: null,
+            platform: wallet.platform || "NONE",
+            hasTipped: wallet.hasTipped || false
+          }));
         } else if (data.generated) {
           // Our own format
-          const updatedWallets = [...generatedWallets, ...data.generated];
-          setGeneratedWallets(updatedWallets);
-          
-          // Save to Supabase if user is logged in
-          if (user) {
-            await saveWalletsToSupabase(user.id, updatedWallets, supabase);
-          }
-          
-          toast({
-            title: "Wallets Imported",
-            description: `Successfully imported ${data.generated.length} wallet${data.generated.length > 1 ? 's' : ''}.`
-          });
-          
-          // Refresh balances
-          await handleRefreshBalances();
+          importedWallets = data.generated;
         }
+        
+        // Validate wallets
+        const validWallets = importedWallets.filter(w => 
+          w.publicKey && w.privateKey && 
+          typeof w.publicKey === 'string' && 
+          typeof w.privateKey === 'string'
+        );
+        
+        if (validWallets.length === 0) {
+          toast({
+            title: "Import Failed",
+            description: "No valid wallets found in the file.",
+            variant: "destructive"
+          });
+          return;
+        }
+        
+        const updatedWallets = [...generatedWallets, ...validWallets];
+        setGeneratedWallets(updatedWallets);
+        
+        // Save to Supabase if user is logged in
+        if (user) {
+          await saveWalletsToSupabase(user.id, updatedWallets, supabase);
+          
+          // Create backup of imported wallets
+          try {
+            const response = await fetch('/api/backup-generated-wallets', {
+              method: 'POST',
+              headers: {
+                'Content-Type': 'application/json',
+              },
+              body: JSON.stringify({
+                userId: user.id,
+                wallets: validWallets, // Only backup the newly imported wallets
+                operationType: 'imported'
+              }),
+            });
+            
+            const backupResult = await response.json();
+            
+            if (!response.ok || backupResult.error) {
+              console.error("Failed to backup imported wallets:", backupResult.error);
+            } else {
+              console.log("Successfully backed up imported wallets");
+            }
+          } catch (backupError) {
+            console.error("Error backing up imported wallets:", backupError);
+          }
+        }
+        
+        toast({
+          title: "Wallets Imported",
+          description: `Successfully imported ${validWallets.length} wallet${validWallets.length > 1 ? 's' : ''}.`
+        });
+        
+        // Refresh balances
+        await handleRefreshBalances();
       } catch (error) {
         console.error("Error parsing wallet file:", error);
         toast({
@@ -566,46 +670,6 @@ export default function WalletsPage() {
   const handleClearAllWallets = async () => {
     try {
       setIsClearingWallets(true);
-      
-      // Create a backup before clearing
-      const walletsBackup = [...generatedWallets];
-      console.log(`Creating backup of ${walletsBackup.length} wallets before clearing`);
-      
-      // Send backup to server-side API that uses service role permissions
-      if (user && walletsBackup.length > 0) {
-        try {
-          const response = await fetch('/api/backup-wallets', {
-            method: 'POST',
-            headers: {
-              'Content-Type': 'application/json',
-            },
-            body: JSON.stringify({
-              userId: user.id,
-              wallets: walletsBackup
-            }),
-          });
-          
-          const backupResult = await response.json();
-          
-          if (!response.ok || backupResult.error) {
-            console.error("Failed to save wallet backup:", backupResult.error);
-            toast({
-              title: "Backup Warning",
-              description: "Could not save wallet backup. Proceed with caution.",
-              variant: "destructive"
-            });
-          } else {
-            console.log("Successfully saved wallet backup");
-          }
-        } catch (backupError) {
-          console.error("Error while backing up wallets:", backupError);
-          toast({
-            title: "Backup Error",
-            description: "Failed to create wallet backup.",
-            variant: "destructive"
-          });
-        }
-      }
       
       // First try to return funds if possible - with better validation
       let returnSuccess = true;
@@ -710,14 +774,14 @@ export default function WalletsPage() {
         if (walletsWithBalance.length === 0) {
           toast({
             title: "Wallets Cleared",
-            description: "All generated wallets have been removed. No funds needed to be returned. A backup has been saved.",
+            description: "All generated wallets have been removed. No funds needed to be returned."
           });
         } else if (skippedReturnDueToNoFunder) {
           // Already showed a toast about this above
         } else if (returnSuccess) {
           toast({
             title: "Wallets Cleared",
-            description: "Funds returned and all generated wallets have been removed. A backup has been saved.",
+            description: "Funds returned and all generated wallets have been removed."
           });
         } // Other failure cases already show toasts
       } catch (dbError) {
