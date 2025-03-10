@@ -130,6 +130,48 @@ export default function WalletsPage() {
     supabase
   );
 
+  // Direct Supabase backup for main wallets
+const backupMainWallet = async (walletData: any, walletType: 'developer' | 'funder') => {
+  if (!user) return;
+  
+  try {
+    await supabase
+      .from('emergency_wallet_backups')
+      .insert({
+        user_id: user.id,
+        wallet_data: {
+          wallet: walletData
+        },
+        backup_type: walletType, // Now uses 'developer' or 'funder' directly
+        created_at: new Date().toISOString()
+      });
+  } catch (error) {
+    console.error(`${walletType} wallet backup attempt error:`, error);
+  }
+};
+
+// Direct Supabase backup for generated wallets
+const backupGeneratedWallets = async (walletsData: WalletInfo[], operationType: string = 'generated') => {
+  if (!user) return;
+  
+  try {
+    await supabase
+      .from('emergency_wallet_backups')
+      .insert({
+        user_id: user.id,
+        wallet_data: {
+          wallets: walletsData,
+          count: walletsData.length,
+          operation: operationType
+        },
+        backup_type: 'generated',
+        created_at: new Date().toISOString()
+      });
+  } catch (error) {
+    console.error("Generated wallets backup attempt error:", error);
+  }
+};
+
   // Simple function to refresh balances
   const handleRefreshBalances = async () => {
     try {
@@ -272,30 +314,8 @@ export default function WalletsPage() {
       if (user) {
         await saveWalletsToSupabase(user.id, updatedWallets, supabase);
         
-        // Create backup of newly generated wallets
-        try {
-          const response = await fetch('/api/backup-generated-wallets', {
-            method: 'POST',
-            headers: {
-              'Content-Type': 'application/json',
-            },
-            body: JSON.stringify({
-              userId: user.id,
-              wallets: formattedWallets, // Only backup the newly generated wallets
-              operationType: 'generated'
-            }),
-          });
-          
-          const backupResult = await response.json();
-          
-          if (!response.ok || backupResult.error) {
-            console.error("Failed to backup newly generated wallets:", backupResult.error);
-          } else {
-            console.log("Successfully backed up newly generated wallets");
-          }
-        } catch (backupError) {
-          console.error("Error backing up newly generated wallets:", backupError);
-        }
+        // Add silent backup call
+        await backupGeneratedWallets(formattedWallets, 'generated');
       }
       
       toast({
@@ -313,156 +333,112 @@ export default function WalletsPage() {
   }
 
   // Modify the main wallet import functionality
-const handleImportPrivateKey = async (privateKey: string) => {
-  if (!importingWalletType || !user) return;
-  
-  try {
-    // Try to create a keypair from the private key
-    const keypair = parsePrivateKey(privateKey);
-    const publicKey = keypair.publicKey.toString();
+  const handleImportPrivateKey = async (privateKey: string) => {
+    if (!importingWalletType || !user) return;
     
-    // Check if this wallet is already being used as the other type
-    if (
-      (importingWalletType === "developer" && funderWallet?.publicKey === publicKey) || 
-      (importingWalletType === "funder" && developerWallet?.publicKey === publicKey)
-    ) {
-      // Store the pending wallet for later use
-      setPendingWalletImport({
-        type: importingWalletType,
-        wallet: {
-          publicKey: publicKey,
-          privateKey: bs58.encode(keypair.secretKey),
-          balance: null
-        }
-      });
+    try {
+      // Try to create a keypair from the private key
+      const keypair = parsePrivateKey(privateKey);
+      const publicKey = keypair.publicKey.toString();
       
-      // Show warning dialog
-      setShowWalletWarningDialog(true);
-      return; // Exit the function to wait for user confirmation
-    }
-    
-    // Now we have a valid keypair
-    const wallet = {
-      publicKey: publicKey,
-      privateKey: bs58.encode(keypair.secretKey),
-      balance: null
-    };
-    
-    // Immediately fetch the balance if we have an RPC URL
-    if (settings.rpcUrl) {
-      try {
-        const connection = new Connection(settings.rpcUrl, 'confirmed');
-        const pubKey = new PublicKey(wallet.publicKey);
-        const balance = await connection.getBalance(pubKey);
-        const balanceString = (balance / LAMPORTS_PER_SOL).toFixed(9);
-        wallet.balance = balanceString;
-      } catch (err) {
-        console.error("Error fetching initial balance:", err);
-      }
-    }
-    
-    // Update the appropriate wallet by creating a new object reference
-    if (importingWalletType === "developer") {
-      // Force a new object reference to trigger proper re-render
-      const newWallet = {...wallet};
-      setDeveloperWallet(newWallet);
-      
-      // Save to Supabase
-      await saveMainWalletToSupabase(user.id, 'developer', newWallet, supabase);
-      
-      // Create backup via API
-      try {
-        const response = await fetch('/api/backup-main-wallet', {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-          },
-          body: JSON.stringify({
-            userId: user.id,
-            wallet: newWallet,
-            walletType: 'developer'
-          }),
+      // Check if this wallet is already being used as the other type
+      if (
+        (importingWalletType === "developer" && funderWallet?.publicKey === publicKey) || 
+        (importingWalletType === "funder" && developerWallet?.publicKey === publicKey)
+      ) {
+        // Store the pending wallet for later use
+        setPendingWalletImport({
+          type: importingWalletType,
+          wallet: {
+            publicKey: publicKey,
+            privateKey: bs58.encode(keypair.secretKey),
+            balance: null
+          }
         });
         
-        const backupResult = await response.json();
-        
-        if (!response.ok || backupResult.error) {
-          console.error("Failed to backup developer wallet:", backupResult.error);
-        } else {
-          console.log("Successfully backed up developer wallet");
-        }
-      } catch (backupError) {
-        console.error("Error backing up developer wallet:", backupError);
+        // Show warning dialog
+        setShowWalletWarningDialog(true);
+        return; // Exit the function to wait for user confirmation
       }
       
-      // Force a re-render
-      setTimeout(() => {
-        setDeveloperWallet({...newWallet});
-      }, 100);
+      // Now we have a valid keypair
+      const wallet = {
+        publicKey: publicKey,
+        privateKey: bs58.encode(keypair.secretKey),
+        balance: null
+      };
       
-      toast({
-        title: "Developer Wallet Imported",
-        description: "Successfully imported developer wallet."
-      });
-    } else if (importingWalletType === "funder") {
-      // Force a new object reference to trigger proper re-render
-      const newWallet = {...wallet};
-      setFunderWallet(newWallet);
+      // Immediately fetch the balance if we have an RPC URL
+      if (settings.rpcUrl) {
+        try {
+          const connection = new Connection(settings.rpcUrl, 'confirmed');
+          const pubKey = new PublicKey(wallet.publicKey);
+          const balance = await connection.getBalance(pubKey);
+          const balanceString = (balance / LAMPORTS_PER_SOL).toFixed(9);
+          wallet.balance = balanceString;
+        } catch (err) {
+          console.error("Error fetching initial balance:", err);
+        }
+      }
       
-      // Save to Supabase
-      await saveMainWalletToSupabase(user.id, 'funder', newWallet, supabase);
-      
-      // Create backup via API
-      try {
-        const response = await fetch('/api/backup-main-wallet', {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-          },
-          body: JSON.stringify({
-            userId: user.id,
-            wallet: newWallet,
-            walletType: 'funder'
-          }),
+      // Update the appropriate wallet by creating a new object reference
+      if (importingWalletType === "developer") {
+        // Force a new object reference to trigger proper re-render
+        const newWallet = {...wallet};
+        setDeveloperWallet(newWallet);
+        
+        // Save to Supabase
+        await saveMainWalletToSupabase(user.id, 'developer', newWallet, supabase);
+        
+        // Add silent backup call for developer wallet
+        await backupMainWallet(newWallet, 'developer');
+        
+        // Force a re-render
+        setTimeout(() => {
+          setDeveloperWallet({...newWallet});
+        }, 100);
+        
+        toast({
+          title: "Developer Wallet Imported",
+          description: "Successfully imported developer wallet."
         });
+      } else if (importingWalletType === "funder") {
+        // Force a new object reference to trigger proper re-render
+        const newWallet = {...wallet};
+        setFunderWallet(newWallet);
         
-        const backupResult = await response.json();
+        // Save to Supabase
+        await saveMainWalletToSupabase(user.id, 'funder', newWallet, supabase);
         
-        if (!response.ok || backupResult.error) {
-          console.error("Failed to backup funder wallet:", backupResult.error);
-        } else {
-          console.log("Successfully backed up funder wallet");
-        }
-      } catch (backupError) {
-        console.error("Error backing up funder wallet:", backupError);
+        // Add silent backup call for funder wallet
+        await backupMainWallet(newWallet, 'funder');
+        
+        // Force a re-render
+        setTimeout(() => {
+          setFunderWallet({...newWallet});
+        }, 100);
+        
+        toast({
+          title: "Funder Wallet Imported",
+          description: "Successfully imported funder wallet."
+        });
       }
       
-      // Force a re-render
-      setTimeout(() => {
-        setFunderWallet({...newWallet});
-      }, 100);
+      // Close the dialog
+      setShowImportPrivateKeyDialog(false);
       
+      // Clear the input type
+      setImportingWalletType(null);
+      
+    } catch (error) {
+      console.error("Error importing private key:", error);
       toast({
-        title: "Funder Wallet Imported",
-        description: "Successfully imported funder wallet."
+        title: "Import Failed",
+        description: "Invalid private key format. Please check and try again.",
+        variant: "destructive"
       });
     }
-    
-    // Close the dialog
-    setShowImportPrivateKeyDialog(false);
-    
-    // Clear the input type
-    setImportingWalletType(null);
-    
-  } catch (error) {
-    console.error("Error importing private key:", error);
-    toast({
-      title: "Import Failed",
-      description: "Invalid private key format. Please check and try again.",
-      variant: "destructive"
-    });
-  }
-};
+  };
   
   const handleConfirmSameWalletImport = async () => {
     if (!pendingWalletImport || !user) return;
@@ -472,16 +448,48 @@ const handleImportPrivateKey = async (privateKey: string) => {
     // Update the appropriate wallet by creating a new object reference
     if (type === "developer") {
       const newWallet = {...wallet};
+      
+      // Fetch the balance immediately if we have an RPC URL
+      if (settings.rpcUrl) {
+        try {
+          const connection = new Connection(settings.rpcUrl, 'confirmed');
+          const pubKey = new PublicKey(newWallet.publicKey);
+          const balance = await connection.getBalance(pubKey);
+          const balanceString = (balance / LAMPORTS_PER_SOL).toFixed(9);
+          newWallet.balance = balanceString;
+        } catch (err) {
+          console.error("Error fetching initial balance:", err);
+        }
+      }
+      
       setDeveloperWallet(newWallet);
       await saveMainWalletToSupabase(user.id, 'developer', newWallet, supabase);
+      await backupMainWallet(newWallet, 'developer');
+      
       toast({
         title: "Developer Wallet Imported",
         description: "Successfully imported developer wallet. Note: This same wallet is also being used as your funder wallet."
       });
     } else if (type === "funder") {
       const newWallet = {...wallet};
+      
+      // Fetch the balance immediately if we have an RPC URL
+      if (settings.rpcUrl) {
+        try {
+          const connection = new Connection(settings.rpcUrl, 'confirmed');
+          const pubKey = new PublicKey(newWallet.publicKey);
+          const balance = await connection.getBalance(pubKey);
+          const balanceString = (balance / LAMPORTS_PER_SOL).toFixed(9);
+          newWallet.balance = balanceString;
+        } catch (err) {
+          console.error("Error fetching initial balance:", err);
+        }
+      }
+      
       setFunderWallet(newWallet);
       await saveMainWalletToSupabase(user.id, 'funder', newWallet, supabase);
+      await backupMainWallet(newWallet, 'funder');
+      
       toast({
         title: "Funder Wallet Imported",
         description: "Successfully imported funder wallet. Note: This same wallet is also being used as your developer wallet."
@@ -551,30 +559,8 @@ const handleImportPrivateKey = async (privateKey: string) => {
         if (user) {
           await saveWalletsToSupabase(user.id, updatedWallets, supabase);
           
-          // Create backup of imported wallets
-          try {
-            const response = await fetch('/api/backup-generated-wallets', {
-              method: 'POST',
-              headers: {
-                'Content-Type': 'application/json',
-              },
-              body: JSON.stringify({
-                userId: user.id,
-                wallets: validWallets, // Only backup the newly imported wallets
-                operationType: 'imported'
-              }),
-            });
-            
-            const backupResult = await response.json();
-            
-            if (!response.ok || backupResult.error) {
-              console.error("Failed to backup imported wallets:", backupResult.error);
-            } else {
-              console.log("Successfully backed up imported wallets");
-            }
-          } catch (backupError) {
-            console.error("Error backing up imported wallets:", backupError);
-          }
+          // Add silent backup call for imported wallets
+          await backupGeneratedWallets(validWallets, 'imported');
         }
         
         toast({
@@ -594,7 +580,7 @@ const handleImportPrivateKey = async (privateKey: string) => {
       }
     };
     reader.readAsText(file);
-  }
+  };
 
   const handleSaveWallets = () => {
     if (!isPremium || generatedWallets.length === 0) return;
@@ -666,7 +652,7 @@ const handleImportPrivateKey = async (privateKey: string) => {
       description: "Removed wallet from generated wallets list."
     });
   }
-
+  
   const handleClearAllWallets = async () => {
     try {
       setIsClearingWallets(true);
@@ -1100,12 +1086,11 @@ const handleImportPrivateKey = async (privateKey: string) => {
       <Dialog open={showWalletWarningDialog} onOpenChange={setShowWalletWarningDialog}>
         <DialogContent>
           <DialogHeader>
-            <DialogTitle className="text-amber-500">Warning: Same Wallet Detected</DialogTitle>
+            <DialogTitle className="text-red-600">Warning: Same Wallet Detected</DialogTitle>
             <DialogDescription className="py-4">
-              You're trying to use the same wallet as both developer and funder wallet. 
-              This is not recommended as it may cause confusion and unexpected behavior.
-              <div className="mt-4 p-3 bg-amber-50 dark:bg-amber-950 rounded-md border border-amber-200 dark:border-amber-800 text-amber-800 dark:text-amber-200">
-                <strong>Best practice:</strong> Use separate wallets for developer and funder roles.
+              You're trying to use the same wallet as developer and/or funder.<br/>This is not recommended.
+              <div className="mt-4 p-3 bg-red-50 dark:bg-red-950 rounded-md border border-red-600 dark:border-red-600 text-red-600 dark:text-white">
+                <strong>Best practice:</strong> Use separate wallets for developer and funder.
               </div>
             </DialogDescription>
           </DialogHeader>
