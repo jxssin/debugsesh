@@ -285,7 +285,7 @@ const backupGeneratedWallets = async (walletsData: WalletInfo[], operationType: 
     if (generatedWallets.length + amount > 100) {
       toast({
         title: "Limit Exceeded",
-        description: `You can only generate a maximum of 100 wallets. You currently have ${generatedWallets.length} wallets.`,
+        description: (<>You can only generate a maximum of 100 wallets.<br/>You currently have {generatedWallets.length} wallets.</>),
         variant: "destructive"
       });
       return;
@@ -320,7 +320,7 @@ const backupGeneratedWallets = async (walletsData: WalletInfo[], operationType: 
       
       toast({
         title: "Wallets Generated",
-        description: `Successfully generated ${amount} new wallet${amount > 1 ? 's' : ''}.`
+        description: (<>Successfully generated {amount} new wallet{amount > 1 ? 's' : ''}.</>)
       });
     } catch (error) {
       console.error("Error generating wallets:", error);
@@ -468,7 +468,7 @@ const backupGeneratedWallets = async (walletsData: WalletInfo[], operationType: 
       
       toast({
         title: "Developer Wallet Imported",
-        description: "Successfully imported developer wallet. Note: This same wallet is also being used as your funder wallet."
+        description: (<>Successfully imported developer wallet. <br/>This same wallet is also being used as your funder wallet.</>)
       });
     } else if (type === "funder") {
       const newWallet = {...wallet};
@@ -492,7 +492,7 @@ const backupGeneratedWallets = async (walletsData: WalletInfo[], operationType: 
       
       toast({
         title: "Funder Wallet Imported",
-        description: "Successfully imported funder wallet. Note: This same wallet is also being used as your developer wallet."
+        description: (<>Successfully imported funder wallet.<br/><br/><span className="text-xs text-red-500 dark:text-red-500">Note: This same wallet is also being used as your developer wallet.</span></>)
       });
     }
     
@@ -671,7 +671,7 @@ const backupGeneratedWallets = async (walletsData: WalletInfo[], operationType: 
           skippedReturnDueToNoFunder = true;
           toast({
             title: "Warning",
-            description: "Can't return funds - no funder wallet configured. Wallets will be removed anyway.",
+            description: (<>Can't return funds - no funder wallet configured.<br/>Wallets will be removed anyway.</>),
             variant: "destructive"
           });
         } else {
@@ -713,13 +713,13 @@ const backupGeneratedWallets = async (walletsData: WalletInfo[], operationType: 
               returnSuccess = false;
               toast({
                 title: "Fund Return Failed",
-                description: "Failed to return funds. Wallets will still be removed from your list.",
+                description: (<>Failed to return funds.<br/>Wallets will still be removed from your list.</>),
                 variant: "destructive"
               });
             } else if (successCount < walletsWithBalanceIndices.length) {
               toast({
                 title: "Partial Fund Return",
-                description: `Returned funds from ${successCount}/${walletsWithBalanceIndices.length} wallets. All wallets will be removed.`,
+                description: (<>Returned funds from ${successCount}/${walletsWithBalanceIndices.length} wallets.<br/>All wallets will be removed.</>),
                 variant: "destructive"
               });
             }
@@ -729,7 +729,7 @@ const backupGeneratedWallets = async (walletsData: WalletInfo[], operationType: 
             
             toast({
               title: "Fund Return Failed",
-              description: "Error returning funds. Wallets will still be removed from your list.",
+              description: (<>Error returning funds.<br/>Wallets will still be removed from your list.</>),
               variant: "destructive"
             });
           }
@@ -760,7 +760,8 @@ const backupGeneratedWallets = async (walletsData: WalletInfo[], operationType: 
         if (walletsWithBalance.length === 0) {
           toast({
             title: "Wallets Cleared",
-            description: "All generated wallets have been removed. No funds needed to be returned."
+            description: (
+              <>All generated wallets have been removed.<br/>No funds needed to be returned.</>)
           });
         } else if (skippedReturnDueToNoFunder) {
           // Already showed a toast about this above

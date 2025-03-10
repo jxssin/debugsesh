@@ -123,8 +123,8 @@ export function ReturnFundsDialog({
             <div className="text-xs text-muted-foreground">
               <p>Funds will be returned to your funder wallet after deducting network fees.</p>
               {!isPremium && (
-                <p className="mt-1 text-xs text-amber-500">
-                  <strong>Note:</strong> Free accounts cannot close SPL token accounts. Any tokens will remain in wallets.
+                <p className="mt-1 text-xs text-red-500">
+                  <strong>Note:</strong> Free accounts cannot close SPL token accounts.<br/>Tokens will remain in wallets.
                 </p>
               )}
             </div>

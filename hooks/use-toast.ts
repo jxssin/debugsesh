@@ -1,6 +1,6 @@
+// hooks/use-toast.ts
 "use client"
 
-// Inspired by react-hot-toast library
 import * as React from "react"
 
 import type {
@@ -8,12 +8,12 @@ import type {
   ToastProps,
 } from "@/components/ui/toast"
 
-const TOAST_LIMIT = 1
-const TOAST_REMOVE_DELAY = 1000000
+const TOAST_LIMIT = 10
+const TOAST_REMOVE_DELAY = 3000
 
 type ToasterToast = ToastProps & {
   id: string
-  title?: React.ReactNode
+  title?: string
   description?: React.ReactNode
   action?: ToastActionElement
 }
@@ -93,8 +93,6 @@ export const reducer = (state: State, action: Action): State => {
     case "DISMISS_TOAST": {
       const { toastId } = action
 
-      // ! Side effects ! - This could be extracted into a dismissToast() action,
-      // but I'll keep it here for simplicity
       if (toastId) {
         addToRemoveQueue(toastId)
       } else {
@@ -140,9 +138,16 @@ function dispatch(action: Action) {
   })
 }
 
-type Toast = Omit<ToasterToast, "id">
+interface ToastOptions {
+  title?: React.ReactNode
+  description?: React.ReactNode
+  variant?: "default" | "destructive" | "success"
+  action?: ToastActionElement
+  [key: string]: any
+}
 
-function toast({ ...props }: Toast) {
+function toast(opts: ToastOptions) {
+  const { title, description, variant = "default", ...props } = opts
   const id = genId()
 
   const update = (props: ToasterToast) =>
@@ -150,18 +155,28 @@ function toast({ ...props }: Toast) {
       type: "UPDATE_TOAST",
       toast: { ...props, id },
     })
+  
   const dismiss = () => dispatch({ type: "DISMISS_TOAST", toastId: id })
+
+  // Convert title to string if present
+  const titleString = title ? String(title) : undefined
+
+  // Convert success variant to default for shadcn compatibility
+  const mappedVariant = variant === "success" ? "default" : variant
 
   dispatch({
     type: "ADD_TOAST",
     toast: {
       ...props,
       id,
+      title: titleString,
+      description,
+      variant: mappedVariant,
       open: true,
-      onOpenChange: (open) => {
+      onOpenChange: (open: boolean) => {
         if (!open) dismiss()
       },
-    },
+    } as ToasterToast,
   })
 
   return {
