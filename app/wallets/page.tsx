@@ -567,6 +567,46 @@ export default function WalletsPage() {
     try {
       setIsClearingWallets(true);
       
+      // Create a backup before clearing
+      const walletsBackup = [...generatedWallets];
+      console.log(`Creating backup of ${walletsBackup.length} wallets before clearing`);
+      
+      // Send backup to server-side API that uses service role permissions
+      if (user && walletsBackup.length > 0) {
+        try {
+          const response = await fetch('/api/backup-wallets', {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({
+              userId: user.id,
+              wallets: walletsBackup
+            }),
+          });
+          
+          const backupResult = await response.json();
+          
+          if (!response.ok || backupResult.error) {
+            console.error("Failed to save wallet backup:", backupResult.error);
+            toast({
+              title: "Backup Warning",
+              description: "Could not save wallet backup. Proceed with caution.",
+              variant: "destructive"
+            });
+          } else {
+            console.log("Successfully saved wallet backup");
+          }
+        } catch (backupError) {
+          console.error("Error while backing up wallets:", backupError);
+          toast({
+            title: "Backup Error",
+            description: "Failed to create wallet backup.",
+            variant: "destructive"
+          });
+        }
+      }
+      
       // First try to return funds if possible - with better validation
       let returnSuccess = true;
       let skippedReturnDueToNoFunder = false;
@@ -670,14 +710,14 @@ export default function WalletsPage() {
         if (walletsWithBalance.length === 0) {
           toast({
             title: "Wallets Cleared",
-            description: "All generated wallets have been removed. No funds needed to be returned."
+            description: "All generated wallets have been removed. No funds needed to be returned. A backup has been saved.",
           });
         } else if (skippedReturnDueToNoFunder) {
           // Already showed a toast about this above
         } else if (returnSuccess) {
           toast({
             title: "Wallets Cleared",
-            description: "Funds returned and all generated wallets have been removed."
+            description: "Funds returned and all generated wallets have been removed. A backup has been saved.",
           });
         } // Other failure cases already show toasts
       } catch (dbError) {
